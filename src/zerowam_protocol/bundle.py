@@ -109,7 +109,10 @@ def write(
     if "times" not in arrays:
         raise BundleError("a demonstration needs a times array")
 
-    np.savez(out / FRAMES_NPZ, **{name: np.asarray(value) for name, value in arrays.items()})
+    # Compressed: a pool holds a thousand of these, and frames dominate every one of them.
+    np.savez_compressed(
+        out / FRAMES_NPZ, **{name: np.asarray(value) for name, value in arrays.items()}
+    )
     if private is not None:
         _write_json(out / PRIVATE_DIR / "scene.json", private)
 
