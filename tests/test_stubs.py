@@ -1,0 +1,71 @@
+from __future__ import annotations
+
+import numpy as np
+import pytest
+from protocol_testing import demonstration, observation
+
+from zerowam_protocol.stubs import ReplayPolicy, ZeroPolicy
+
+
+def test_zero_policy_takes_its_width_from_the_demonstration():
+    arrays, info = demonstration(dims=14)
+    policy = ZeroPolicy()
+
+    policy.set_demonstration(arrays, {k: v for k, v in info.items() if k != "action_dim"})
+    policy.reset(0)
+    action = policy.act(observation(dims=14))
+
+    assert action["action"].shape == (14,)
+    assert not action["action"].any()
+
+
+def test_zero_policy_prefers_the_width_info_declares():
+    arrays, info = demonstration(dims=14)
+    policy = ZeroPolicy()
+
+    policy.set_demonstration(arrays, info)  # info says 16
+
+    assert policy.act(observation())["action"].shape == (16,)
+
+
+def test_replay_policy_walks_the_expert_and_holds_the_last_action(tmp_path):
+    actions = np.arange(12, dtype=np.float64).reshape(3, 4)
+    path = tmp_path / "expert.npz"
+    np.savez(path, actions=actions)
+    policy = ReplayPolicy(str(path))
+
+    policy.reset(0)
+    played = [policy.act({})["action"] for _ in range(5)]
+
+    assert np.allclose(played[:3], actions)
+    assert np.allclose(played[3], actions[-1])
+    assert np.allclose(played[4], actions[-1])
+
+
+def test_replay_policy_starts_over_on_reset(tmp_path):
+    path = tmp_path / "expert.npz"
+    np.savez(path, actions=np.arange(8, dtype=np.float64).reshape(2, 4))
+    policy = ReplayPolicy(str(path))
+
+    policy.reset(0)
+    first = policy.act({})["action"]
+    policy.act({})
+    policy.reset(0)
+
+    assert np.allclose(policy.act({})["action"], first)
+
+
+def test_replay_policy_refuses_an_expert_without_actions(tmp_path):
+    path = tmp_path / "expert.npz"
+    np.savez(path, states=np.zeros((3, 4)))
+
+    with pytest.raises(KeyError, match="actions"):
+        ReplayPolicy(str(path))
+
+
+def test_replay_policy_refuses_a_trajectory_of_the_wrong_shape(tmp_path):
+    path = tmp_path / "expert.npz"
+    np.savez(path, actions=np.zeros(4))
+
+    with pytest.raises(ValueError, match="trajectory"):
+        ReplayPolicy(str(path))

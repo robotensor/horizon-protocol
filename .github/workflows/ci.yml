@@ -1,0 +1,36 @@
+name: ci
+on:
+  push:
+  pull_request:
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install ruff==0.16.7
+      - run: ruff check . && ruff format --check .
+  unit:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "${{ matrix.python }}" }
+      - run: pip install -e ".[dev]"
+      - run: pytest -q
+  # Both ends of the socket are installed next to foreign pins: test the built distribution in an
+  # environment holding nothing but it and pytest.
+  distribution:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: python -m venv /tmp/protocol-env
+      - run: /tmp/protocol-env/bin/pip install . pytest
+      - run: /tmp/protocol-env/bin/pip list
+      - run: /tmp/protocol-env/bin/python -m pytest -q tests
