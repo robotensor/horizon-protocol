@@ -93,6 +93,38 @@ def test_a_policy_that_cannot_be_built_ends_the_session(tmp_path):
     assert served.process.wait(timeout=20) == 1
 
 
+def test_one_server_takes_several_clients_and_keeps_its_policy(tmp_path):
+    """A submission is evaluated over many units; its weights are loaded once, not per unit."""
+    served = serve(tmp_path, "zerowam_protocol.stubs:ZeroPolicy", max_sessions=3)
+    arrays, info = demonstration()
+    client = served.policy  # the helper is already connected: that is session one
+    try:
+        for session in range(3):
+            client.hello()
+            client.set_demonstration(arrays, info)
+            client.reset(1)
+            assert client.act(observation())["action"].shape == (16,)
+            client.close()  # a unit ends
+            if session < 2:
+                client = served.connect()  # the next unit connects to the same server
+    finally:
+        client.close()
+        served.process.wait(timeout=20)
+
+    assert served.process.returncode == 0
+    assert served.log.read_text().count("hello from") == 3
+
+
+def test_a_server_that_has_served_its_clients_stops_listening(tmp_path):
+    served = serve(tmp_path, "zerowam_protocol.stubs:ZeroPolicy", max_sessions=1, timeout_s=5.0)
+    served.policy.hello()
+    served.policy.close()
+    served.process.wait(timeout=20)
+
+    with pytest.raises(PolicyUnavailable):
+        served.connect().hello()
+
+
 def test_parse_policy_and_build_policy():
     assert parse_policy("pkg.mod:Class") == ("pkg.mod", "Class")
     policy = build_policy("zerowam_protocol.stubs:ZeroPolicy", {"width": "7"})

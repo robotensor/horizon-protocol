@@ -85,6 +85,17 @@ class Served:
     process: subprocess.Popen
     policy: RemotePolicy
     log: Path
+    address: str = ""
+    authkey: bytes = b""
+    timeout_s: float = 60.0
+
+    def connect(self) -> RemotePolicy:
+        """Another client for the same server, as the next unit of an epoch would be.
+
+        Sessions never overlap: close the one in hand before asking for this, or it waits in the
+        listener's backlog until the server is free.
+        """
+        return RemotePolicy(self.address, self.authkey, timeout_s=self.timeout_s, log_file=self.log)
 
     def close(self) -> None:
         self.policy.close()
@@ -95,7 +106,13 @@ class Served:
             self.process.wait(timeout=10)
 
 
-def serve(tmp_path: Path, policy: str, *policy_args: str, timeout_s: float = 60.0) -> Served:
+def serve(
+    tmp_path: Path,
+    policy: str,
+    *policy_args: str,
+    timeout_s: float = 60.0,
+    max_sessions: int = 1,
+) -> Served:
     """Serve `module:Class` on a Unix socket under `tmp_path` and connect to it."""
     tmp_path.mkdir(parents=True, exist_ok=True)
     address = str(tmp_path / "policy.sock")
@@ -120,6 +137,7 @@ def serve(tmp_path: Path, policy: str, *policy_args: str, timeout_s: float = 60.
     ]
     for arg in policy_args:
         argv += ["--policy-arg", arg]
+    argv += ["--max-sessions", str(max_sessions)]
     process = subprocess.Popen(argv, env=env)
     authkey = bytes.fromhex(env[AUTHKEY_ENV])
     deadline = time.monotonic() + timeout_s
@@ -130,4 +148,8 @@ def serve(tmp_path: Path, policy: str, *policy_args: str, timeout_s: float = 60.
             raise AssertionError(f"the server exited with {process.returncode}")
         time.sleep(0.02)
     client = RemotePolicy(address, authkey, timeout_s=timeout_s, log_file=log)
-    return Served(process, client, log)
+    served = Served(process, client, log)
+    served.address = address
+    served.authkey = authkey
+    served.timeout_s = timeout_s
+    return served

@@ -1,7 +1,8 @@
-"""`python -m zerowam_protocol.serve`: one competitor's policy, served to one client.
+"""`python -m zerowam_protocol.serve`: one policy, served to one client at a time.
 
     python -m zerowam_protocol.serve --policy MODULE:CLASS [--policy-arg K=V ...] \
-        --address ADDR --authkey-env NAME [--log-file PATH] [--idle-timeout-s SECONDS]
+        --address ADDR --authkey-env NAME [--log-file PATH] [--idle-timeout-s SECONDS] \
+        [--max-sessions N]
 
 `ADDR` is a Unix socket path or `host:port`. The environment variable `NAME` holds the
 authentication key as hex, at least 16 bytes of it; it is read once and removed from the
@@ -9,7 +10,7 @@ environment before any competitor code runs, so nothing the policy starts inheri
 `--log-file`, the server's log and everything the policy prints (standard output and error, native
 libraries included) are appended to that file, and its tail travels with every error reply.
 
-**Lifecycle.** The server listens and accepts exactly one authenticated client. The policy is
+**Lifecycle.** The server listens and accepts one authenticated client at a time. The policy is
 built on the first `hello` - `MODULE:CLASS` imported and constructed with the `--policy-arg`
 values - and the reply carries `protocol`, `action_type` and `policy`. From
 then on each `reset`, `prompt` and `act` calls the policy once and answers `ok` or `action`.
@@ -23,6 +24,12 @@ process exits, and a client that holds the connection with nothing to say for `-
 (30 minutes by default; a policy call in progress is not idle) is taken to have gone. (A call
 stuck in native code that holds the GIL cannot be interrupted from Python; the process around the
 server is the last resort.)
+
+**More than one unit.** With `--max-sessions N` the server takes N clients one after another (0 is
+no limit), keeping the policy it already built: a competition evaluates a submission over many
+units, and loading tens of gigabytes of weights once per unit would cost more than the units do.
+Each client drives its own episodes and says `close`; the next one starts with `hello` and gets the
+same policy, which `reset` starts over. Sessions never overlap.
 
 **Exit status.** The process exits as soon as the session ends, however it ends, without waiting
 for threads the policy started. 0 after `close`, when the client hangs up or when it was idle too
@@ -397,6 +404,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--log-file", help="append the log and the policy's output to this file")
     parser.add_argument(
+        "--max-sessions",
+        type=_sessions,
+        default=1,
+        metavar="N",
+        help="how many clients to serve one after another, keeping the policy (0 is no limit)",
+    )
+    parser.add_argument(
         "--idle-timeout-s",
         type=_positive_seconds,
         default=IDLE_TIMEOUT_S,
@@ -417,6 +431,16 @@ def _policy_kwargs(pairs: list[str]) -> dict[str, str]:
             raise PolicySpecError(f"policy argument {key!r} given twice")
         kwargs[key] = value
     return kwargs
+
+
+def _sessions(text: str) -> int:
+    try:
+        count = int(text)
+    except ValueError:
+        count = -1
+    if count < 0:
+        raise argparse.ArgumentTypeError(f"{text!r} is not a session count (0 is no limit)")
+    return count
 
 
 def _positive_seconds(text: str) -> float:
@@ -469,17 +493,37 @@ def main(argv: list[str] | None = None) -> int:
     except OSError as exc:
         log.error("cannot listen on %s: %s", args.address, exc)
         return EXIT_USAGE
-    log.info("listening on %s to serve %s to one client", args.address, args.policy)
+    limit = args.max_sessions
+    log.info(
+        "listening on %s to serve %s to %s",
+        args.address,
+        args.policy,
+        "one client" if limit == 1 else f"{limit or 'any number of'} clients, one at a time",
+    )
+    status = EXIT_OK
+    served = 0
+    policy = None
     try:
-        conn = _accept(listener)
+        while limit == 0 or served < limit:
+            conn = _accept(listener)
+            session = Session(conn, args.policy, policy_kwargs, log_file, args.idle_timeout_s)
+            # Built once and kept: a submission is evaluated over many units, and loading tens of
+            # gigabytes of weights per unit would cost more than the units do.
+            session.policy = policy
+            session.action_type = getattr(policy, "action_type", None)
+            try:
+                status = session.run()
+            finally:
+                _flush()
+                with contextlib.suppress(OSError):
+                    conn.close()
+            served += 1
+            if session.policy is None:  # it could not be built, and that will not change
+                return status
+            policy = session.policy
     finally:
         listener.close()
-    try:
-        return Session(conn, args.policy, policy_kwargs, log_file, args.idle_timeout_s).run()
-    finally:
-        _flush()
-        with contextlib.suppress(OSError):
-            conn.close()
+    return status
 
 
 def _exit(status: int) -> None:

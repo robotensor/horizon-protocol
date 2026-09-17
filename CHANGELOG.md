@@ -15,3 +15,10 @@ All notable changes to this distribution. The format follows
   `private/`), with a sha256 per file and `public_arrays` as the only thing a policy is given.
 - `result`: `result.json` with `outcome` and `void_cause`.
 - `stubs`: `ZeroPolicy` and `ReplayPolicy`, so a benchmark's chain can be smoke-tested with no model.
+- `serve --max-sessions N`: one server takes N clients one after another and keeps the policy it
+  built. A submission is evaluated over many units, and loading tens of gigabytes of weights per
+  unit would cost more than the units do.
+
+### Changed
+
+- A bundle's arrays are compressed: an uncompressed click_bell unit was 103 MB, compressed 22 MB.
