@@ -28,6 +28,27 @@ def test_zero_policy_prefers_the_width_info_declares():
     assert policy.act(observation())["action"].shape == (16,)
 
 
+def test_zero_policy_reads_the_width_again_for_every_demonstration():
+    """One server serves many units, and the next one may be another benchmark's robot."""
+    policy = ZeroPolicy()
+    arrays, _ = demonstration(dims=16)
+
+    policy.set_demonstration(arrays, {"action_dim": 16})
+    assert policy.act(observation())["action"].shape == (16,)
+
+    policy.set_demonstration(arrays, {"action_dim": 7})
+    assert policy.act(observation())["action"].shape == (7,)
+
+
+def test_a_width_given_to_zero_policy_is_kept():
+    policy = ZeroPolicy(width=9)
+    arrays, _ = demonstration()
+
+    policy.set_demonstration(arrays, {"action_dim": 16})
+
+    assert policy.act(observation())["action"].shape == (9,)
+
+
 def test_replay_policy_walks_the_expert_and_holds_the_last_action(tmp_path):
     actions = np.arange(12, dtype=np.float64).reshape(3, 4)
     path = tmp_path / "expert.npz"

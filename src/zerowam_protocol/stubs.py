@@ -29,11 +29,15 @@ class ZeroPolicy:
 
     def __init__(self, action_type: str = "ee", width: str | int = 0) -> None:
         self.action_type = str(action_type)
-        self.width = int(width)
+        #: A width given here is fixed; otherwise every demonstration decides it again.
+        self.fixed_width = int(width)
+        self.width = self.fixed_width
 
     def set_demonstration(self, arrays: Mapping[str, np.ndarray], info: Mapping[str, Any]) -> None:
-        if not self.width:
-            self.width = int(info.get("action_dim") or _width(arrays))
+        # Read again for every demonstration. One server serves many units, and the unit after
+        # this one may be another benchmark with another robot: a width remembered from the last
+        # one would be sent to a robot that cannot execute it.
+        self.width = self.fixed_width or int(info.get("action_dim") or _width(arrays))
 
     def reset(self, seed: int) -> None:
         pass
