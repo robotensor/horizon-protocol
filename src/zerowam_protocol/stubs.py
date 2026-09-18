@@ -20,11 +20,12 @@ found it and the unit ends `failure`. Two seeds of one task on each benchmark pu
 still", and a scale is all it is: over RoboTwin `click_bell`'s 400 actions both arms' end effectors
 moved under half a millimetre from where they started, and over robocasa `OpenDrawer`'s 750 the arm
 moved about a millimetre while its gripper stayed within 0.014 of the opening it was shown. Those
-are displacements of position only - orientation drifts too, by about a tenth of a degree over the
-same episode. Echoing is not a latch, though: every action targets the pose the arm has already
-settled to, so what is left is a creep of about a micrometre per action on RoboTwin, where a control
-that repeated its first observation instead held to 0.004 mm. A hold this close is a floor to score
-against, not a pose to trust to a tenth of a millimetre. (#15)
+are displacements of position only - orientation drifts too, and by a margin that varies with the
+seed: of robocasa's two seeds, one held to a thousandth of a degree and the other drifted a third
+of one over the same episode. Echoing is not a latch, though: every action targets the pose the arm
+has already settled to, so what is left is a creep of about a micrometre per action on RoboTwin,
+where a control that repeated its first observation instead held to 0.004 mm. A hold this close is
+a floor to score against, not a pose to trust to a tenth of a millimetre. (#15)
 
 `ReplayPolicy` is a test instrument, not a competitor: it is given a privileged file on purpose,
 by the harness that already holds it. Nothing in the competition serves it to score a submission.
