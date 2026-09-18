@@ -46,6 +46,25 @@ Every way the policy can fail — an error reply, a timeout, a hang-up, a malfor
 
 ## Conventions and demonstrations
 
+**The convention (decision Q3).** Every number a benchmark and a model exchange means the same thing
+on every benchmark, and each benchmark fork converts its simulator's values to it, in both
+directions. An `ee` action, and the observation's state channel, is 8 numbers per arm,
+`[x, y, z, qw, qx, qy, qz, g]`:
+
+- the position in **metres**, in the frame `info.action_spec.frame` names (`world`, or
+  `robot_base`, the base link of the arm's chain);
+- the orientation as a unit quaternion, **scalar first `(qw, qx, qy, qz)`**, rotating that frame
+  into the tool frame; q and −q are the same rotation;
+- the gripper `g` in **[0, 1], 0 = fully closed, 1 = fully open**, a position target, so echoing
+  the observed state holds the robot still.
+
+Two arms go left then right (A = 16). A one-armed robot is a single block (A = 8), declared
+`arms: ["right"]`; the name is a label on the wire and never picks a model slot, which each model
+runtime's own table does (Zero-WAM puts a single arm in its slot 0). The benchmark declares what is
+native to its robot (frame, tool, execution, gripper semantics) in `info.action_spec`;
+`zerowam_protocol.conventions` holds the constants and the checks (`check_action_spec`,
+`check_chunk`, `check_observation`, `arm_slices`, `same_rotation`).
+
 Two pages are the contract every benchmark and every model family implements; read them before
 adding either:
 

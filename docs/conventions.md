@@ -16,16 +16,23 @@ branch `zerowam`, `ffeaed6`; `robot.py` = `envs/robot/robot.py`, `_base_task.py`
 `robosuite/…` is robosuite `5ce6643f`; `Zero-WAM/…` is Zero-WAM `08e2c4a`; `runtime/…` is
 `zerowam-runtime` `a42edf7`; this package's own files are at `c0bb625`. `transforms3d
 quaternions.py` is `transforms3d/quaternions.py` of the transforms3d package RoboTwin runs with
-(0.4.2). The constants and checks named below live in `zerowam_protocol.conventions` and
-`zerowam_protocol.conformance`.
+(0.4.2). The constants and the pure checks C-P1..3 named below live in
+`zerowam_protocol.conventions`; the helpers the forks' selftests use will live in
+`zerowam_protocol.conformance` (P10).
 
-**Status.** This page is the contract; the code that enforces it is being built, and until each item
-lands the page is what implementers follow. `zerowam_protocol.conventions` (the constants,
-`check_action_spec`, `arm_slices`) is P9; `zerowam_protocol.conformance` (C-P1..3 and the helpers the
-forks' checks use) is P10; the `info` schema with `action_spec` is P11 and ships with
-`PROTOCOL_VERSION` 3 (P6); `demo.json`'s `action_spec` ships with `BUNDLE_VERSION` 2 (P2). The forks'
-side is RT5, RT10, RT11 (RoboTwin) and RC4, RC5, RC9 (robocasa); the runtime's is RU5, RU8, RU9,
-RU10 and G7; the competition's check is C3. Issues: the "Code shape" milestone of each repository.
+**Status.** This page is the contract; where an item below has not landed, the page is what
+implementers follow.
+
+- **Landed in this package:** `zerowam_protocol.conventions` (P9): the constants, `check_action_spec`
+  (C-P1), `check_chunk(a, spec)` (C-P2), `check_observation(obs, spec, cameras)` (C-P3),
+  `arm_slices` and `same_rotation`.
+- **Pending in this package:** `demo.json`'s `action_spec`, checked with `check_action_spec`, ships
+  with `BUNDLE_VERSION` 2 (P2); the `info` schema with `action_spec` is P11 and ships with
+  `PROTOCOL_VERSION` 3 (P6); `zerowam_protocol.conformance`, the helpers the forks' checks use, is
+  P10.
+- **Pending elsewhere:** the forks' side is RT5, RT10, RT11 (RoboTwin) and RC4, RC5, RC9
+  (robocasa); the runtime's is RU5, RU8, RU9, RU10 and G7; the competition's check is C3. Issues:
+  the "Code shape" milestone of each repository.
 
 ---
 
@@ -214,6 +221,12 @@ reading; fixtures MUST be regenerated from the fork (C-R1).
 `base_poses` present exactly when `world`, each quaternion within 1e-3 of unit norm; `control_hz` set
 exactly when `setpoint`; `layout` is the constant; `gripper_command == "position"`; `tool` complete.
 
+Every number it reads must be one a double can hold: JSON carries integers that are not (`10 ** 400`),
+and a `base_poses` component or a `control_hz` out of that range is listed as a problem like any
+other, never raised as an `OverflowError`. The same rule holds wherever this package range-tests a
+number a fork or a file gave it: `demo.json`'s `camera.pose` and `camera.fovy`, and `result.json`'s
+`timing`.
+
 ---
 
 ## 6. `info`: the keys these conventions touch
@@ -271,7 +284,7 @@ MuJoCo differ, and a consumer MUST NOT assume one.
 |---|---|---|
 | Simulator values ↔ wire (rotation form, quaternion order, float precision, gripper range, direction and command semantics, padding of held DoFs) | Fork | One pair of pure functions per embodiment, `to_wire_state` and `from_wire_action`, unit-tested and used by observing, acting, the demonstration writer and the replay alike |
 | Declaring the space | Fork | One function per embodiment returns `action_spec`; evaluation and demonstration making both use it |
-| Spec, chunk and observation checks | Protocol | `check_action_spec`, `check_chunk(a, spec)`, `check_observation(obs, spec)` |
+| Spec, chunk and observation checks | Protocol | `check_action_spec`, `check_chunk(a, spec)`, `check_observation(obs, spec, info.cameras)` (`zerowam_protocol.conventions`) |
 | world ↔ base conversion, if a model needs it | That model's runtime, from `base_poses` | Forks never convert frames |
 | Wire ↔ model layout | Model runtime only | One embodiment table (R1) |
 | Training data in the model's layout | The runtime's recipes | The same functions as serving; `action_spec` read from each bundle's `demo.json` |
@@ -349,7 +362,7 @@ Quaternion comparisons are **up to sign** everywhere: two quaternions agree when
 |---|---|---|---|
 | C-P1 | protocol, pure | `check_action_spec` (§5) | no error |
 | C-P2 | protocol, pure | `check_chunk(a, spec)`: shape `(A,)` or `(H,A)`; finite; each ‖q‖ ≥ 1e-6 | no error |
-| C-P3 | protocol, pure | `check_observation(obs, spec)`: state channel `(A,)` or `(K,A)`; ‖q‖ within 1e-3 of 1; g in [0, 1]; every `frames_<name>` in `info.cameras` is uint8 RGB | no error |
+| C-P3 | protocol, pure | `check_observation(obs, spec, cameras)`, `cameras` = `info.cameras`: state channel `(A,)` or `(K,A)`; ‖q‖ within 1e-3 of 1; g in [0, 1]; every `frames_<name>` in `info.cameras` is uint8 RGB | no error |
 | C-F1 | fork selftest | Hold still: from reset, echo the state channel (last row when stacked) as the action 10 times (setpoint robots: 20 steps) | drift ≤ 5 mm and ≤ 2°; \|Δg\| ≤ 0.05 |
 | C-F2 | fork selftest | Translation: +2 cm along each axis of `frame`, one at a time | displacement within 30° of the command, ≥ 50 % of its length |
 | C-F3 | fork selftest | Rotation and quaternion order: target `q_axis(10°) ⊗ q_now` about each axis of `frame` | `q_obs ⊗ q_now⁻¹` has its axis within 30° of the commanded axis and an angle in [5°, 15°] |

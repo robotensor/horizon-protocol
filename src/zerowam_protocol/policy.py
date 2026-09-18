@@ -13,6 +13,21 @@ values, and then, for as long as its one client is connected:
   `(A,)` or a chunk of shape `(H, A)`, in the space `action_type` names.
 - `close()`, if the policy has it, is called when the client says `close`.
 
+**The convention (decision Q3; `docs/conventions.md`, checked by `zerowam_protocol.conventions`).**
+Every pose number means the same thing on every benchmark, and **each benchmark fork converts** its
+simulator's values to it, in both directions:
+
+- an `ee` action and the observation's state channel (the array `info.action_spec.state_channel`
+  names) hold 8 numbers per arm, `[x, y, z, qw, qx, qy, qz, g]`: a position **in metres**, in the
+  frame `info.action_spec.frame` names (`world`, or `robot_base`, the base link of the arm's chain);
+  a unit quaternion **scalar first, (qw, qx, qy, qz)**, rotating that frame into the tool frame,
+  either sign; and a gripper `g` **in [0, 1], 0 = fully closed, 1 = fully open**, a position target;
+- two arms go left then right (A = 16). **A one-armed robot is a single block (A = 8), declared
+  `arms: ["right"]`.** The name is a label on the wire, never a model slot: each runtime maps the
+  declared spec to its own slots by its own table (Zero-WAM puts a single arm in its slot 0);
+- an action is an absolute target, `(A,)` or a chunk `(H, A)`, never a delta, so echoing the
+  observed state holds the robot still.
+
 A policy that needs to see what its chunk did declares `observe_every = N`: the benchmark then
 records an observation after every N-th action of a chunk and sends them all, stacked, with the
 next `act`. Absent, it is 0, and `act` carries the current observation only. `observe` has the rule.

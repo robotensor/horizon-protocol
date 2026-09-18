@@ -8,6 +8,14 @@ All notable changes to this distribution. The format follows
 
 ### Added
 
+- `zerowam_protocol.conventions`: decision Q3's convention as code. Constants for what every number
+  means (`PER_ARM_LAYOUT` `[x, y, z, qw, qx, qy, qz, gripper]`, metres, scalar-first quaternions,
+  gripper 0 closed … 1 open, left then right, a single arm declared `right`) and the vocabulary a
+  benchmark declares its space in (`FRAMES`, `TOOL_APPROACH_AXES`, `EXECUTIONS`, `CAMERA_ROLES`,
+  …); `check_action_spec` (C-P1), `check_chunk(action, spec)` (C-P2),
+  `check_observation(observation, spec, cameras)` (C-P3), `arm_slices` (wire positions, never model
+  slots) and `same_rotation` (up to sign). `policy.py` and the README state the convention and that
+  each fork converts to it. (#11)
 - Protocol 2: a policy may declare `observe_every = N`, returned in the reply to `hello`. The
   benchmark then records an observation after every N-th action of a chunk and sends them, stacked
   oldest first, with the next `act`; a chunk whose length is not a multiple of N is refused.
