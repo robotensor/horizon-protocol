@@ -1,14 +1,26 @@
 """`RemotePolicy`: what a benchmark drives a served policy with.
 
     with RemotePolicy(address, authkey, timeout_s=60.0, prompt_timeout_s=600.0,
-                      act_timeout_s=30.0, log_file=server_log) as policy:
-        policy.hello()        # {"protocol": 2, "action_type": ..., "observe_every": N, ...}
+                      act_timeout_s=30.0, action_types=("ee",), honors_observe_every=True,
+                      log_file=server_log) as policy:
+        policy.hello()        # {"protocol": 3, "action_type": ..., "observe_every": N, ...}
         policy.set_demonstration(prompt_arrays, info)
         policy.reset(seed)
         action = policy.act(observation)["action"]  # (A,) or a chunk (H, A)
 
 When the policy's `observe_every` is N > 0, `observation` is the stack of observations recorded
 every N actions since the last `act` (`zerowam_protocol.observe`), not the current one alone.
+
+**`hello` says what this benchmark does, and the server refuses a policy it cannot drive.**
+`action_types` names the action types the benchmark executes (`ee` by default, the competition's)
+and `honors_observe_every` says whether it records the observations a chunk produced. Both default
+to the cautious answer, so a benchmark that has not adopted protocol 3 is turned away rather than
+handed a policy it would drive wrongly: an unstacked observation sent to a policy that asked for a
+stack is silently the wrong input. The reply may carry `served`, what the server says this process
+serves (`zerowam_protocol.policy.SERVED_KEYS`: the family's sha and version, the resolved knobs,
+the weights' fingerprint and sha); it is kept as `self.served`, and a benchmark records it in
+`result.json` unchanged, so every result says what produced it. Both ends check the other's
+`protocol` and refuse anything but this one.
 
 It needs numpy and the standard library only. A benchmark imports it; the competitor's side runs
 `python -m zerowam_protocol.serve`.
@@ -57,7 +69,7 @@ import os
 import socket
 import threading
 import time
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from multiprocessing import AuthenticationError
 from multiprocessing.connection import Connection, answer_challenge, deliver_challenge
 from typing import Any
@@ -67,7 +79,7 @@ import numpy as np
 from . import __version__, bundle, logs, observe, wire
 from .errors import BundleSchemaError, PolicyUnavailable, WireError
 from .info import check_info
-from .policy import ACTION_TYPES
+from .policy import ACTION_TYPES, SERVED_KEYS, checked_served
 
 __all__ = ["PolicyUnavailable", "RemotePolicy"]
 
@@ -89,12 +101,25 @@ class RemotePolicy:
         timeout_s: float = 60.0,
         prompt_timeout_s: float | None = None,
         act_timeout_s: float | None = None,
+        action_types: Sequence[str] = ("ee",),
+        honors_observe_every: bool = False,
         log_file: str | os.PathLike[str] | None = None,
     ) -> None:
         if not isinstance(authkey, (bytes, bytearray)):
             raise TypeError("authkey must be bytes")
         if len(authkey) < wire.MIN_AUTHKEY_BYTES:
             raise ValueError(f"authkey must be at least {wire.MIN_AUTHKEY_BYTES} bytes")
+        kinds = list(action_types)
+        if not kinds or any(kind not in ACTION_TYPES for kind in kinds):
+            raise ValueError(
+                f"action_types is {list(action_types)!r}: name the action types this benchmark "
+                f"executes, from {', '.join(ACTION_TYPES)}"
+            )
+        if not isinstance(honors_observe_every, bool):
+            raise ValueError(
+                f"honors_observe_every is {honors_observe_every!r}, not true or false: say whether "
+                "this benchmark records the observations a policy's observe_every asks for"
+            )
         for name, value in (
             ("timeout_s", timeout_s),
             ("prompt_timeout_s", prompt_timeout_s),
@@ -112,9 +137,19 @@ class RemotePolicy:
         )
         #: One `act`, the competition's per-action budget. Defaults to `timeout_s`.
         self.act_timeout_s = self.timeout_s if act_timeout_s is None else float(act_timeout_s)
+        #: The action types this benchmark executes, declared at `hello`. The server refuses to
+        #: serve a policy whose own action type is not among them.
+        self.action_types = tuple(kinds)
+        #: Whether this benchmark records the observations a policy's `observe_every` asks for and
+        #: sends them stacked (`zerowam_protocol.observe`), declared at `hello`. A server refuses a
+        #: client that says no to a policy that asked for them, rather than let it run blind.
+        self.honors_observe_every = honors_observe_every
         self.log_file = log_file
         #: The served policy's action type, known once `hello` has been answered.
         self.action_type: str | None = None
+        #: What the server said it served (`zerowam_protocol.policy.SERVED_KEYS`), or None. A
+        #: benchmark records it in `result.json` unchanged, so every result says what produced it.
+        self.served: dict[str, Any] | None = None
         #: Record an observation every this many actions of a chunk (0: only the current one), known
         #: once `hello` has been answered. `zerowam_protocol.observe` has the rule.
         self.observe_every = 0
@@ -131,10 +166,22 @@ class RemotePolicy:
     # -- the protocol -----------------------------------------------------------------------
 
     def hello(self) -> dict[str, Any]:
-        """Greet the server, which builds the policy now: `protocol`, `action_type`,
-        `observe_every` and `policy`."""
+        """Greet the server, which builds the policy now.
+
+        The greeting says which protocol this end speaks, which action types this benchmark
+        executes and whether it records the observations a policy's `observe_every` asks for; a
+        server whose policy this client cannot drive refuses here rather than later, in silence.
+        The reply is `protocol`, `action_type`, `observe_every`, `policy` and, where the policy
+        exposes one, `served`, which is also kept as `self.served`.
+        """
+        greeting = {
+            "client": f"zerowam-protocol {__version__}",
+            "protocol": wire.PROTOCOL_VERSION,
+            "action_types": list(self.action_types),
+            "honors_observe_every": self.honors_observe_every,
+        }
         try:
-            fields, _ = self._call("hello", {"client": f"zerowam-protocol {__version__}"})
+            fields, _ = self._call("hello", greeting)
         except PolicyUnavailable:
             self._abandon()  # a server that cannot build its policy has ended the session
             raise
@@ -152,8 +199,16 @@ class RemotePolicy:
         except ValueError as exc:
             self._abandon()
             raise self._unavailable("hello", str(exc)) from None
+        try:
+            served = checked_served(fields.get("served"))
+        except ValueError as exc:
+            self._abandon()
+            raise self._unavailable(
+                "hello", f"{exc}; a result records what was served ({', '.join(SERVED_KEYS)})"
+            ) from None
         self.action_type = action_type
         self.observe_every = every
+        self.served = served
         return dict(fields)
 
     def reset(self, seed: int) -> None:

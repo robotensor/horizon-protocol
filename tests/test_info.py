@@ -124,7 +124,16 @@ def test_a_client_that_is_not_remotepolicy_cannot_hand_a_policy_another_info(tmp
     served.policy.close()  # session one, so the raw client below gets session two
     conn = mp_connection.Client(served.address, family="AF_UNIX", authkey=served.authkey)
     try:
-        wire.send(conn, "hello", {"client": "a fork of its own"})
+        wire.send(
+            conn,
+            "hello",
+            {
+                "client": "a fork of its own",
+                "protocol": wire.PROTOCOL_VERSION,
+                "action_types": ["ee"],
+                "honors_observe_every": False,
+            },
+        )
         assert wire.recv(conn)[0] == "ok"
 
         without_spec = {k: v for k, v in sent.items() if k != "action_spec"}

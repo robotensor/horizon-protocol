@@ -15,18 +15,23 @@ header announces it.
 
 **A message** is one JSON header frame,
 
-    {"protocol": 2, "op": "act", "fields": {...}, "arrays": [{"name", "dtype", "shape"}, ...]}
+    {"protocol": 3, "op": "act", "fields": {...}, "arrays": [{"name", "dtype", "shape"}, ...]}
 
 followed by one raw little-endian frame per array, in the order the header lists them. The header
 is validated in full before any array frame is read, and each frame is read with the size its
 description implies as the limit, so a hostile header cannot size an allocation it does not pay
 for.
 
-**Ops.** A client sends `hello` (fields: `client`), `reset` (fields: `seed`), `prompt` (arrays:
-the demonstration; fields: `info`), `act` (arrays: the observation, or the stack of them a policy's
+**Ops.** A client sends `hello` (fields: `client`, `protocol`, `honors_observe_every`,
+`action_types`), `reset` (fields: `seed`), `prompt` (arrays: the demonstration; fields: `info`, the
+keys `zerowam_protocol.info` names), `act` (arrays: the observation, or the stack of them a policy's
 `observe_every` asks for) and `close`. The server answers each with `ok` (the reply to `hello`
-carries `protocol`, `action_type`, `observe_every` and `policy`), `action` (arrays, `action` among
-them) or `error` (fields: `type`, `message`, `log_tail`).
+carries `protocol`, `action_type`, `observe_every`, `policy` and, where the policy exposes one,
+`served`), `action` (arrays, `action` among them) or `error` (fields: `type`, `message`,
+`log_tail`).
+
+Both ends check the other's `protocol` at `hello` and refuse anything but `PROTOCOL_VERSION`, so a
+mismatch is one clear refusal rather than a field quietly missing later.
 
 **Addresses** are a Unix socket path or `host:port`, both authenticated with a shared key of at
 least `MIN_AUTHKEY_BYTES` by `multiprocessing.connection`.
@@ -62,10 +67,12 @@ __all__ = [
 ]
 
 #: Bumped whenever a message changes shape. Every header carries it and every receiver checks it;
-#: the reply to `hello` repeats it so a client can refuse a server before the first real call.
+#: `hello` and its reply repeat it, so each end can refuse the other before the first real call.
 #: 2: the reply to `hello` carries the policy's `observe_every`, and `act` may carry a stack of the
 #: observations a chunk produced (`zerowam_protocol.observe`).
-PROTOCOL_VERSION = 2
+#: 3: `hello` says which protocol, which action types and which observation cadence the client
+#: honours, its reply may carry `served`, and `prompt` carries an `info` of the keys Q14 names.
+PROTOCOL_VERSION = 3
 
 #: Every dtype an array may have on the wire, as numpy spells it little-endian. Anything else -
 #: object above all, but also strings, datetimes, structured and big-endian dtypes - is refused.

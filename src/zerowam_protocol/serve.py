@@ -10,15 +10,26 @@ environment before any competitor code runs, so nothing the policy starts inheri
 `--log-file`, the server's log and everything the policy prints (standard output and error, native
 libraries included) are appended to that file, and its tail travels with every error reply.
 
-**Lifecycle.** The server listens and accepts one authenticated client at a time. The policy is
-built on the first `hello` - `MODULE:CLASS` imported and constructed with the `--policy-arg`
-values - and the reply carries `protocol`, `action_type`, `observe_every` and `policy`. From
-then on each `reset`, `prompt` and `act` calls the policy once and answers `ok` or `action`.
+**Lifecycle.** The server listens and accepts one authenticated client at a time. A client's
+`hello` says which `protocol` it speaks, which `action_types` it executes and whether it
+`honors_observe_every`; the policy is built on the first one that may drive it - `MODULE:CLASS`
+imported and constructed with the `--policy-arg` values - and the reply carries `protocol`,
+`action_type`, `observe_every`, `policy` and, where the policy exposes one, `served` (what this
+process serves: `zerowam_protocol.policy.SERVED_KEYS`, which the benchmark records in its result).
+From then on each `reset`, `prompt` and `act` calls the policy once and answers `ok` or `action`.
 A `prompt`'s arrays are held to the demonstration allow-list (`frames_<camera>` and `times`,
 decision Q4) and its `info` to the keys decision Q14 names (`zerowam_protocol.info`), here as well
 as in the client, so no client can hand a policy the demonstrator's record or another `info`,
 whether or not it is `RemotePolicy`. The session survives either refusal: the message was the
 benchmark's error, not the policy's.
+
+**A client this policy cannot be driven by is refused, and the server lives on.** A client that
+speaks another protocol, that does not execute the policy's `action_type`, or that has not said it
+records the observations a policy's `observe_every` above 0 asks for, gets an error reply and its
+session ends; with `--max-sessions` the policy stays built and the next client is served, because
+the mismatch is that client's and not the policy's. Answering such a client would be worse than
+refusing: an unstacked observation sent to a policy that asked for a stack is silently the wrong
+input.
 
 **Failure.** An exception from the policy is logged and answered with an `error` reply (`type`,
 `message`, `log_tail`), and the server keeps serving: the client decides what it means. A message
@@ -41,8 +52,10 @@ same policy, which `reset` starts over. Sessions never overlap.
 waiting for threads the policy started.
 
 - 0, `EXIT_OK`: every session said `close`, hung up between calls or was idle too long.
-- 1, `EXIT_FAILED`: the policy could not be built, a malformed message ended the session, or
-  anything else went wrong (a `KeyboardInterrupt` included, which is not answered).
+- 1, `EXIT_FAILED`: the policy could not be built, a client this policy cannot be driven by was
+  refused, a malformed message ended the session, or anything else went wrong (a
+  `KeyboardInterrupt` included, which is not answered). A refused client counts against
+  `--max-sessions` like any other session, so under the default of 1 it is the process's status.
 - 2, `EXIT_USAGE`: serving never started (arguments, key or address).
 - 3, `EXIT_HUNGUP`: the client hung up **while a policy call was running**, so its answer is lost.
 
@@ -78,7 +91,7 @@ import numpy as np
 from . import bundle, logs, observe, wire
 from .errors import BundleSchemaError, PolicySpecError, WireError
 from .info import check_info
-from .policy import ACTION_TYPES
+from .policy import ACTION_TYPES, checked_served
 
 log = logging.getLogger("zerowam_protocol.serve")
 
@@ -250,6 +263,10 @@ class Session:
         self.policy_kwargs = dict(policy_kwargs)
         self.log_file = log_file
         self.policy: Any = None
+        #: Set when the policy itself could not be built or served: the server stops, because the
+        #: next client would meet the same failure. A client refused for a mismatch of its own
+        #: leaves it False, and the server takes the next one.
+        self.policy_failed = False
         self.action_type: str | None = None
         self.observe_every = 0
         self.watch = _HangupWatch(conn)
@@ -302,29 +319,56 @@ class Session:
 
     def _op_hello(self, fields: dict[str, Any], arrays: dict[str, np.ndarray]) -> None:
         log.info("hello from %r", fields.get("client"))
+        # What the client says about itself, before the policy is built: a client this policy
+        # cannot be driven by is refused without paying for tens of gigabytes of weights.
+        problems = _client_problems(fields)
+        if problems:
+            self._refuse_client(problems)
         if self.policy is None:
             ok, policy = self._call("hello", build_policy, self.policy_spec, self.policy_kwargs)
             if not ok:
+                self.policy_failed = True  # a rebuild with the same policy would fail the same way
                 raise _SessionOver(EXIT_FAILED)
             self.policy, self.action_type = policy, policy.action_type
         # Every hello, not only the one that built the policy: a server with --max-sessions keeps
         # its policy across clients, and each client must hear how often to observe.
         self.observe_every = observe.checked_every(getattr(self.policy, "observe_every", 0))
+        try:
+            served = checked_served(getattr(self.policy, "served", None))
+        except ValueError as exc:
+            self.policy_failed = True  # the runtime's own bug, and it would say the same again
+            log.error("the policy's served is not protocol 3's: %s", exc)
+            self._error("ValueError", f"hello: {exc}")
+            raise _SessionOver(EXIT_FAILED) from None
+        self._refuse_client(_mismatch_problems(fields, self.action_type, self.observe_every))
         log.info(
             "serving %s, action_type %r, observe_every %d",
             self.policy_spec,
             self.action_type,
             self.observe_every,
         )
-        self._send(
-            "ok",
-            {
-                "protocol": wire.PROTOCOL_VERSION,
-                "action_type": self.action_type,
-                "observe_every": self.observe_every,
-                "policy": self.policy_spec,
-            },
-        )
+        reply: dict[str, Any] = {
+            "protocol": wire.PROTOCOL_VERSION,
+            "action_type": self.action_type,
+            "observe_every": self.observe_every,
+            "policy": self.policy_spec,
+        }
+        if served is not None:
+            reply["served"] = served
+        self._send("ok", reply)
+
+    def _refuse_client(self, problems: list[str]) -> None:
+        """End this session, saying why this client may not drive this policy. The server lives on.
+
+        Only this client is turned away: with `--max-sessions` the policy stays built and the next
+        client is served, because the mismatch is that client's, not the policy's.
+        """
+        if not problems:
+            return
+        why = "; ".join(problems)
+        log.error("refusing this client: %s", why)
+        self._error("WireError", f"hello: {why}")
+        raise _SessionOver(EXIT_FAILED)
 
     def _op_reset(self, fields: dict[str, Any], arrays: dict[str, np.ndarray]) -> None:
         seed = fields.get("seed")
@@ -448,6 +492,54 @@ def _accept(listener: Listener) -> Any:
             log.warning("a client sent nonsense during authentication: %s", exc)
 
 
+def _client_problems(fields: Mapping[str, Any]) -> list[str]:
+    """What is wrong with what a client's `hello` says about itself (protocol 3)."""
+    problems = []
+    protocol = fields.get("protocol")
+    if type(protocol) is not int or protocol != wire.PROTOCOL_VERSION:
+        problems.append(
+            f"the client speaks protocol {protocol!r}, this server speaks {wire.PROTOCOL_VERSION}"
+        )
+    honors = fields.get("honors_observe_every")
+    if not isinstance(honors, bool):
+        problems.append(
+            f"honors_observe_every is {honors!r}, not true or false: a protocol "
+            f"{wire.PROTOCOL_VERSION} client says whether it records observations while a chunk "
+            "runs"
+        )
+    action_types = fields.get("action_types")
+    if not (
+        isinstance(action_types, list)
+        and action_types
+        and all(kind in ACTION_TYPES for kind in action_types)
+    ):
+        problems.append(
+            f"action_types is {action_types!r}, not a non-empty list of "
+            f"{', '.join(ACTION_TYPES)}: a client says which action types it executes"
+        )
+    return problems
+
+
+def _mismatch_problems(
+    fields: Mapping[str, Any], action_type: str | None, observe_every: int
+) -> list[str]:
+    """Where what this client does and what this policy needs do not meet (protocol 3)."""
+    problems = []
+    action_types = fields.get("action_types") or []
+    if action_type not in action_types:
+        problems.append(
+            f"the policy acts in {action_type!r}, which this client does not execute "
+            f"({', '.join(map(str, action_types))})"
+        )
+    if observe_every > 0 and not fields.get("honors_observe_every"):
+        problems.append(
+            f"the policy observes every {observe_every} actions of a chunk, and this client does "
+            "not record them: it would answer each act with the current observation alone and the "
+            "policy would run blind"
+        )
+    return problems
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m zerowam_protocol.serve",
@@ -455,7 +547,8 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=(
             "exit status:\n"
             f"  {EXIT_OK}  every session ended cleanly: close, a hang-up between calls, or idle\n"
-            f"  {EXIT_FAILED}  the policy could not be built, or a malformed message or another "
+            f"  {EXIT_FAILED}  the policy could not be built, a client it cannot be driven by was "
+            "refused (counting\n     against --max-sessions), or a malformed message or another "
             "failure ended a session\n"
             f"  {EXIT_USAGE}  serving never started: arguments, key or address\n"
             f"  {EXIT_HUNGUP}  the client hung up while a policy call was running, under any "
@@ -601,7 +694,7 @@ def main(argv: list[str] | None = None) -> int:
                 with contextlib.suppress(OSError):
                     conn.close()
             served += 1
-            if session.policy is None:  # it could not be built, and that will not change
+            if session.policy_failed:  # it could not be served, and that will not change
                 return status
             policy = session.policy
     finally:

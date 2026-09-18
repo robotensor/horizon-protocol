@@ -40,7 +40,9 @@ keys but never one of these (`REQUIRED_KEYS`), so nothing can overwrite an outco
   (`zerowam_protocol.stubs`) instead of a submission. The competition refuses to score such a
   result outside a dry run (Q4).
 - `served`: `null`, or the mapping the server's reply to `hello` said it served (protocol 3), which
-  the fork records unchanged.
+  the fork records unchanged: `zerowam_protocol.policy.SERVED_KEYS` (`family_sha256`,
+  `family_version`, `knobs`, `weights_fingerprint`, `weights_sha256`) and nothing else, so what an
+  operator's `--knobs` resolved to is in the record of every unit it produced.
 
 `write` and `read` hold a result to the same rules, and every refusal is a `ValueError` that names
 the field and the rule - a run directory that cannot be written or read included, so a fork maps one
@@ -59,6 +61,7 @@ from typing import Any
 import numpy as np
 
 from .conventions import _is_finite
+from .policy import SERVED_KEYS
 
 __all__ = [
     "OUTCOMES",
@@ -295,13 +298,19 @@ def _problems(record: Mapping[str, Any]) -> list[str]:
             f"stub_policy is {stub!r}, not null or one of {', '.join(STUB_POLICIES)} (Q4)"
         )
     served = record.get("served")
-    if served is not None and not (
-        isinstance(served, dict) and all(isinstance(key, str) for key in served)
-    ):
-        problems.append(
-            f"served is {served!r}, not null or the mapping the server's hello reply carried "
-            "(result v2)"
-        )
+    if served is not None:
+        if not isinstance(served, dict):
+            problems.append(
+                f"served is {served!r}, not null or the mapping the server's hello reply carried "
+                "(result v2)"
+            )
+        else:
+            unknown = sorted(str(key) for key in served if key not in SERVED_KEYS)
+            if unknown:
+                problems.append(
+                    f"served carries {', '.join(unknown)}; it holds {', '.join(SERVED_KEYS)} and "
+                    "nothing else, as the reply to hello carried it (protocol 3)"
+                )
     return problems
 
 

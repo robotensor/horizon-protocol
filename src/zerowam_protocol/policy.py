@@ -59,6 +59,7 @@ fixed frame count or frame rate resamples them itself, so one bundle serves ever
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
@@ -66,24 +67,86 @@ if TYPE_CHECKING:
     import numpy as np
 
 #: The action spaces a policy may declare: joint positions or end-effector poses. Benchmarks
-#: declare which of them they execute; `ee` is what the competition runs today.
+#: declare which of them they execute (the `action_types` of their `hello`); `ee` is what the
+#: competition runs today.
 ACTION_TYPES = ("qpos", "ee")
+
+#: What a policy may say it served, carried in the reply to `hello` and recorded unchanged in
+#: `result.json` (`result.served`): the model family's published record and sha, the knobs an
+#: operator resolved, and the weights the process holds. Every result then says what produced it,
+#: an operator's `--knobs` included. The keys are fixed here; the values are the runtime's, and
+#: `knobs` is a mapping of its own.
+SERVED_KEYS = (
+    "family_sha256",
+    "family_version",
+    "knobs",
+    "weights_fingerprint",
+    "weights_sha256",
+)
+
+
+def checked_served(value: Any) -> dict[str, Any] | None:
+    """What a policy exposes as `served`, as the reply carries it: `SERVED_KEYS` only, or None.
+
+    A policy without the attribute serves nothing to record. A `ValueError` names the key that does
+    not belong: the key set is fixed here, so `result.read` holds a result's `served` to the same
+    one and a fork records what it was told, unchanged. `knobs`, when it is there, is a mapping of
+    its own - the one value whose shape is fixed here, because a benchmark reads a knob by name.
+
+    The values are the runtime's own, and are held to what the reply to `hello` can carry: a knob
+    that resolved to a numpy scalar or a path is refused here, naming the key, and the server
+    answers the client that (exit 1) instead of dying on the encoder with the reply half written.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, Mapping):
+        raise ValueError(
+            f"served is a {type(value).__name__}, not a mapping of {', '.join(SERVED_KEYS)}"
+        )
+    unknown = sorted(str(key) for key in value if key not in SERVED_KEYS)
+    if unknown:
+        raise ValueError(
+            f"served carries {', '.join(unknown)}; it holds {', '.join(SERVED_KEYS)} and nothing "
+            "else (protocol 3)"
+        )
+    if "knobs" in value and not isinstance(value["knobs"], Mapping):
+        raise ValueError(
+            f"served['knobs'] is a {type(value['knobs']).__name__}, not the mapping of resolved "
+            "knobs it is recorded as (protocol 3)"
+        )
+    served = dict(value)
+    for key, held in served.items():
+        # The same JSON the wire allows (`wire.encode`), so nothing that passes here can fail to
+        # be sent, and a result records exactly what was checked.
+        try:
+            json.dumps({key: held}, allow_nan=False)
+        except (TypeError, ValueError, RecursionError) as exc:
+            raise ValueError(
+                f"served[{key!r}] is not plain JSON, which is all the reply to hello carries: "
+                f"{exc} (protocol 3)"
+            ) from None
+    return served
 
 
 @runtime_checkable
 class Policy(Protocol):
     """A policy the server can serve: `action_type` and the three methods, and nothing else.
 
-    Two members are optional, so neither is declared here: a `runtime_checkable` Protocol checks
+    Three members are optional, so none is declared here: a `runtime_checkable` Protocol checks
     every member it declares, and declaring an optional one would reject the policies that leave it
     out - `zerowam_protocol.stubs`' own included.
 
     - `observe_every: int` - record an observation every N actions of a chunk and send them with
       the next `act` (`zerowam_protocol.observe`). 0, or absent, is one observation per `act`. The
-      server reads it with `getattr` and repeats it at `hello`.
+      server reads it with `getattr` and repeats it at `hello`, and refuses a client that has not
+      said it honours a cadence above 0.
+    - `served: Mapping[str, Any]` - what this process serves (`SERVED_KEYS`: the family's sha and
+      version, the resolved knobs, the weights' fingerprint and sha), plain JSON throughout. The
+      server reads it with `getattr` and carries it in the reply to `hello`, the benchmark records
+      it in `result.json`, and so every result says what produced it.
     - `close(self) -> None` - called when the client says `close`.
 
-    A policy that sets either still passes `isinstance`.
+    A policy that sets any of them still passes `isinstance`.
     """
 
     #: `"qpos"` or `"ee"`, sent to the client in the reply to `hello`.
