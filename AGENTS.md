@@ -16,6 +16,8 @@ reads the results). A change here is a change to all of them.
 - `wire.py` — the message format: a JSON header frame, then one raw little-endian frame per array.
 - `observe.py` — what a policy that declares `observe_every` is sent between chunks: `stack`,
   `check_chunk`.
+- `conventions.py` — decision Q3 as code: the constants every number follows, `check_action_spec`,
+  `check_chunk(a, spec)`, `check_observation`, `arm_slices`, `same_rotation`.
 - `bundle.py` — the demonstration bundle: `demo.json`, `demo_frames.npz`, `private/`.
 - `result.py` — `result.json`: `outcome` (`success`/`failure`/`void`) and `void_cause`.
 - `stubs.py` — `ZeroPolicy` and `ReplayPolicy`, the model-free smoke tests.

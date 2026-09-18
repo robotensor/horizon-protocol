@@ -17,6 +17,66 @@ from zerowam_protocol.client import RemotePolicy
 
 AUTHKEY_ENV = "ZEROWAM_TEST_AUTHKEY"
 
+#: A number JSON carries and a double cannot hold: `json.loads("1" + "0" * 400)` is exactly this
+#: Python int. `math.isfinite(it)` and `float(it)` raise `OverflowError`, which is no `ValueError`
+#: and no `BundleError`, so every place this package range-tests a number is tested with it.
+TOO_BIG_FOR_A_DOUBLE = int("1" + "0" * 400)
+
+
+def aloha_spec():
+    """An `action_spec` shaped like RoboTwin's aloha-agilex one: two arms, world frame, waypoints.
+
+    Typed here for the protocol's own tests only. A runtime's pinned spec is regenerated from the
+    fork's spec function, never typed (Q3, C-R1); the base pose keeps sapien's float32 values.
+    """
+    base = [0.0, -0.64999998, 0.0, 0.70699999, 0.0, 0.0, 0.70699999]
+    return {
+        "action_type": "ee",
+        "action_dim": 16,
+        "arms": ["left", "right"],
+        "layout": ["x", "y", "z", "qw", "qx", "qy", "qz", "gripper"],
+        "frame": "world",
+        "base_poses": {"left": list(base), "right": list(base)},
+        "tool": {"point": "link6 flange", "approach_axis": "+x", "closing_axis": "y"},
+        "execution": "waypoint",
+        "control_hz": None,
+        "gripper_command": "position",
+        "gripper_state": "commanded",
+        "state_channel": "endpose",
+        "held": [],
+        "native_action_dim": 16,
+    }
+
+
+def panda_spec():
+    """An `action_spec` shaped like RoboCasa's PandaOmron one: one arm, base frame, setpoints."""
+    return {
+        "action_type": "ee",
+        "action_dim": 8,
+        "arms": ["right"],
+        "layout": ["x", "y", "z", "qw", "qx", "qy", "qz", "gripper"],
+        "frame": "robot_base",
+        "tool": {"point": "robosuite grip_site", "approach_axis": "+z", "closing_axis": "x"},
+        "execution": "setpoint",
+        "control_hz": 20,
+        "gripper_command": "position",
+        "gripper_state": "measured",
+        "state_channel": "endpose",
+        "held": ["base", "torso"],
+        "native_action_dim": 12,
+    }
+
+
+def pose_row(arms: int = 2, gripper: float = 0.5):
+    """One state or action row in the Q3 layout: a unit quaternion and `g` for every arm."""
+    rng = np.random.default_rng(3)
+    blocks = []
+    for _ in range(arms):
+        quaternion = rng.standard_normal(4)
+        quaternion /= np.linalg.norm(quaternion)
+        blocks.append(np.concatenate([rng.uniform(-0.5, 0.5, 3), quaternion, [gripper]]))
+    return np.concatenate(blocks)
+
 
 def demonstration(steps: int = 6, dims: int = 16, cameras=("head", "left_wrist")):
     """A demonstration shaped like a RoboTwin one, at a native, uneven frame rate."""
