@@ -8,10 +8,12 @@ import numpy as np
 import pytest
 from protocol_testing import (
     TOO_BIG_FOR_A_DOUBLE,
+    TOO_LONG_A_NAME,
     aloha_spec,
     demonstration,
     expert,
     manifest,
+    refuse_lookup,
     write_bundle,
 )
 
@@ -659,6 +661,44 @@ def test_a_directory_write_cannot_write_into_is_a_bundle_error_not_an_oserror(tm
     with pytest.raises(BundleError, match="cannot be written") as refused:
         bundle.write(tmp_path / "afile" / "unit", manifest=manifest(), arrays=arrays)
     assert type(refused.value) is BundleError  # exit 4, not a schema problem (exit 2)
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda path: bundle.read(path),
+        lambda path: bundle.read(path, verify=False),
+        lambda path: bundle.digest(path),
+    ],
+    ids=["read", "read-unverified", "digest"],
+)
+def test_a_path_the_os_will_not_look_up_is_a_bundle_error_not_an_oserror(tmp_path, call):
+    """ENAMETOOLONG, as root too; EACCES (no search permission) takes the same lines."""
+    with pytest.raises(BundleError, match="cannot be read") as refused:
+        call(tmp_path / TOO_LONG_A_NAME / "unit")
+    assert type(refused.value) is BundleError  # exit 4, not a schema problem (exit 2)
+
+
+@pytest.mark.parametrize(
+    "name, call",
+    [
+        ("demo.json", lambda unit: bundle.read(unit)),
+        ("demo.json", lambda unit: bundle.digest(unit)),
+        ("private/scene/states.npz", lambda unit: bundle.read(unit)),
+        ("demo_frames.npz", lambda unit: bundle.read(unit, verify=False)),
+    ],
+    ids=["read-manifest", "digest-manifest", "read-private", "read-unverified-npz"],
+)
+def test_a_bundle_file_the_os_will_not_look_up_is_a_bundle_error(tmp_path, monkeypatch, name, call):
+    """A file listed in a directory that refuses its lookup (mode r--, any user but root)."""
+    unit = tmp_path / "unit"
+    _with_scene(unit)
+    bundle.write(unit, manifest=manifest(), arrays=demonstration()[0])
+    refuse_lookup(monkeypatch, name)
+
+    with pytest.raises(BundleError, match="cannot be read") as refused:
+        call(unit)
+    assert type(refused.value) is BundleError
 
 
 def test_write_refuses_a_symlink_under_private(tmp_path):

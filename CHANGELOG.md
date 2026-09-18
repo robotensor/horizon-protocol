@@ -147,9 +147,12 @@ adopts one version set once. What a consumer must change:
   caller that builds one policy after another in one process (`conformance.check_policy`, a fork's
   selftest over the runtimes it ships) held it for the rest of the run. A close that blows up is
   dropped, so the refusal still says why the policy could not be built. (#12)
-- Four refusals no longer escape as another class, each found by the contract-v2 reviews
+- Five refusals no longer escape as another class, each found by the contract-v2 reviews
   (#23): `bundle.write` into a directory it cannot write (a parent that is a file, no permission, a
   full disk) raises `BundleError`, not `NotADirectoryError`, as its module promises;
+  `bundle.read`, `bundle.digest`, `result.write` and `result.read` given a path the OS will not
+  look up (no search permission, a name too long) raise `BundleError` or `ValueError`, where
+  pathlib's `is_symlink`/`is_dir`/`is_file` probes before each wrap let the `OSError` through;
   `conventions.check_observation` lists a ragged or unconvertible `frames_*` as one more C-P3
   problem instead of raising numpy's own `ValueError` or `TypeError`; `RemotePolicy` refuses an
   infinite or out-of-range `timeout_s`, `prompt_timeout_s` or `act_timeout_s` with a `ValueError`

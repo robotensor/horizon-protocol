@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import os
 import secrets
 import subprocess
@@ -21,6 +22,25 @@ AUTHKEY_ENV = "ZEROWAM_TEST_AUTHKEY"
 #: Python int. `math.isfinite(it)` and `float(it)` raise `OverflowError`, which is no `ValueError`
 #: and no `BundleError`, so every place this package range-tests a number is tested with it.
 TOO_BIG_FOR_A_DOUBLE = int("1" + "0" * 400)
+
+#: A path component longer than any file system's NAME_MAX: every lookup through it is
+#: ENAMETOOLONG, as root too. pathlib's `is_symlink`, `is_dir`, `is_file` and `exists` swallow a
+#: missing path only (ENOENT, ENOTDIR, EBADF, ELOOP), so this, like a directory with no search
+#: permission (EACCES), reaches the caller of a probe that is not inside a module's own wrap.
+TOO_LONG_A_NAME = "x" * 300
+
+
+def refuse_lookup(monkeypatch, name: str) -> None:
+    """Make every stat of a path ending in `name` fail with EACCES, as a directory of mode r--
+    does for any user but root: its files are listed, and every lookup of one is refused."""
+    real = Path.stat
+
+    def refusing(self, *args, **kwargs):
+        if self.as_posix().endswith("/" + name):
+            raise PermissionError(errno.EACCES, os.strerror(errno.EACCES), str(self))
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", refusing)
 
 
 def aloha_spec():

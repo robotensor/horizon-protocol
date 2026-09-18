@@ -187,16 +187,17 @@ def write(
         raise ValueError(f"result: {'; '.join(problems)}")
     _json_text(record)  # refused now, before anything is written
     out = Path(out_dir)
-    # Never through a symlink, as `read` refuses one and the video is refused here too: a link
-    # would put this unit's result outside its run directory, or over another unit's (result v2).
-    if (out / RESULT_JSON).is_symlink():
-        raise ValueError(
-            f"{out / RESULT_JSON}: a symlink; a run's result is its own file (result v2)"
-        )
-    record["rollout_mp4_sha256"] = _rollout_sha256(out)
-    # A run directory that cannot be written is a ValueError too: a fork maps this module's one
-    # error class to its harness exit, and an OSError from here would escape it (result v2).
+    # A run directory that cannot be written is a ValueError too, the probes before the write
+    # included (a path the OS will not look up, no search permission): a fork maps this module's
+    # one error class to its harness exit, and an OSError from here would escape it (result v2).
     try:
+        # Never through a symlink, as `read` refuses one and the video is refused here too: a link
+        # would put this unit's result outside its run directory, or over another unit's.
+        if (out / RESULT_JSON).is_symlink():
+            raise ValueError(
+                f"{out / RESULT_JSON}: a symlink; a run's result is its own file (result v2)"
+            )
+        record["rollout_mp4_sha256"] = _rollout_sha256(out)
         out.mkdir(parents=True, exist_ok=True)
         (out / RESULT_JSON).write_text(_json_text(record))
     except OSError as exc:
@@ -214,11 +215,11 @@ def read(out_dir: str | Path) -> dict[str, Any]:
     `ValueError` naming the file, the field and the rule; a file that cannot be read is one too.
     """
     path = Path(out_dir) / RESULT_JSON
-    # Never through a symlink, as the video is not read through one either: a run directory holds
-    # its own result, and a link would let one file answer for two units (result v2).
-    if path.is_symlink():
-        raise ValueError(f"{path}: a symlink; a run's result is its own file (result v2)")
     try:
+        # Never through a symlink, as the video is not read through one either: a run directory
+        # holds its own result, and a link would let one file answer for two units (result v2).
+        if path.is_symlink():
+            raise ValueError(f"{path}: a symlink; a run's result is its own file (result v2)")
         text = path.read_bytes().decode("utf-8")
     except FileNotFoundError:
         raise ValueError(f"{path}: no such file") from None
@@ -245,8 +246,8 @@ def read(out_dir: str | Path) -> dict[str, Any]:
     if problems:
         raise ValueError(f"{path}: {'; '.join(problems)}")
     video = Path(out_dir) / ROLLOUT_MP4
-    if video.exists() or video.is_symlink():
-        actual = _rollout_sha256(Path(out_dir))
+    actual = _rollout_sha256(Path(out_dir))
+    if actual is not None:
         if record["rollout_mp4_sha256"] is None:
             raise ValueError(
                 f"{video}: the result records no rollout video, so this one was added after it was "
@@ -354,16 +355,19 @@ def _timing_problems(timing: Any) -> list[str]:
 
 
 def _rollout_sha256(out: Path) -> str | None:
-    """The sha256 of `rollout.mp4` in `out`, or None when there is none."""
+    """The sha256 of `rollout.mp4` in `out`, or None when there is none.
+
+    A symlink, anything but a file and a video that cannot be looked up or read are `ValueError`s.
+    """
     video = out / ROLLOUT_MP4
-    if video.is_symlink():
-        raise ValueError(f"{video}: a symlink; a result's video is its own file (result v2)")
-    if not video.exists():
-        return None
-    if not video.is_file():
-        raise ValueError(f"{video}: not a file (result v2)")
     sha = hashlib.sha256()
     try:
+        if video.is_symlink():
+            raise ValueError(f"{video}: a symlink; a result's video is its own file (result v2)")
+        if not video.exists():
+            return None
+        if not video.is_file():
+            raise ValueError(f"{video}: not a file (result v2)")
         with open(video, "rb") as handle:
             while chunk := handle.read(_CHUNK):
                 sha.update(chunk)

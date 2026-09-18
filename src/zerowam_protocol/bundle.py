@@ -69,11 +69,12 @@ resamples by: nothing here resamples a demonstration.
 
 **Errors.** A schema problem is `BundleSchemaError`, at write and at read: the writer is wrong and a
 rebuild repeats it, so a fork exits 2. Anything else `read` finds - a manifest or an npz that cannot
-be read, a missing file, a hash that does not match, a `files` entry that is not one of the
-bundle's own files - is a plain `BundleError`: the bytes are not what was written, and a fork exits
-4. So is a directory `write` cannot write into (a parent that is a file, no permission, a full
-disk). Nothing reaches the caller of either as an `OSError`, a `KeyError` or numpy's own
-`ValueError`. Every message names what was refused and the rule.
+be read, a path the OS will not look up (no search permission, a name too long), a missing file, a
+hash that does not match, a `files` entry that is not one of the bundle's own files - is a plain
+`BundleError`: the bytes are not what was written, and a fork exits 4. So is a directory `write`
+cannot write into (a parent that is a file, no permission, a full disk), and a path `digest` cannot
+read. Nothing reaches the caller of `read`, `write` or `digest` as an `OSError`, a `KeyError` or
+numpy's own `ValueError`. Every message names what was refused and the rule.
 """
 
 from __future__ import annotations
@@ -214,11 +215,15 @@ def digest(path: str | Path) -> str:
     Files are read in chunks, so a video does not have to fit in memory.
     """
     path = Path(path)
-    if path.is_dir():
-        if (path / DEMO_JSON).is_symlink() or not (path / DEMO_JSON).is_file():
-            raise BundleError(f"{path}: no {DEMO_JSON}, so it is no bundle to take the digest of")
-        return _hash_file(path / DEMO_JSON)
+    # The probes too: pathlib lets through every OSError but a missing path, so a path the OS will
+    # not look up (no search permission, a name too long) would escape as one.
     try:
+        if path.is_dir():
+            if (path / DEMO_JSON).is_symlink() or not (path / DEMO_JSON).is_file():
+                raise BundleError(
+                    f"{path}: no {DEMO_JSON}, so it is no bundle to take the digest of"
+                )
+            return _hash_file(path / DEMO_JSON)
         return _sha256(path)
     except OSError as exc:
         raise BundleError(f"{path}: cannot be read: {exc}") from None
@@ -316,7 +321,11 @@ def read(bundle_dir: str | Path, *, verify: bool = True) -> tuple[dict[str, Any]
     # The manifest before anything else, and never through a symlink: it is the one file the
     # bundle's digest is taken of, so a link would let the scene, the seed and the action_spec be
     # swapped after the pool was frozen, with every hash below still matching.
-    if (path / DEMO_JSON).is_symlink():
+    try:
+        linked = (path / DEMO_JSON).is_symlink()
+    except OSError as exc:  # a path the OS will not look up: no search permission, a long name
+        raise BundleError(f"{path / DEMO_JSON}: cannot be read: {exc}") from None
+    if linked:
         raise BundleError(
             f"{path / DEMO_JSON}: a symlink; a bundle holds its own files, and demo.json is the "
             "file its digest is taken of"
@@ -780,9 +789,9 @@ def _escapes(name: Any) -> bool:
 
 
 def _hash_file(path: Path) -> str:
-    if path.is_symlink() or not path.is_file():
-        raise BundleError(f"{path}: the manifest hashes it, but it is not a file in the bundle")
-    try:
+    try:  # the probe too: a file listed in a directory that refuses a lookup (mode r--) is EACCES
+        if path.is_symlink() or not path.is_file():
+            raise BundleError(f"{path}: the manifest hashes it, but it is not a file in the bundle")
         return _sha256(path)
     except OSError as exc:
         raise BundleError(f"{path}: cannot be read: {exc}") from None
@@ -798,7 +807,11 @@ def _sha256(path: Path) -> str:
 
 def _load_npz(path: Path) -> dict[str, np.ndarray]:
     """The arrays of a bundle's npz, their names, dtypes and shapes checked before any is loaded."""
-    if path.is_symlink() or not path.is_file():
+    try:
+        present = not path.is_symlink() and path.is_file()
+    except OSError as exc:
+        raise BundleError(f"{path}: cannot be read: {exc}") from None
+    if not present:
         raise BundleError(f"{path}: no such file in the bundle")
     described = _npz_headers(path)
     problems = _layout_problems(described)
