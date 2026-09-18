@@ -277,14 +277,17 @@ class JunkAnswerPolicy:
 class RaisingClosePolicy:
     """Blows up on close, answering an action that is executable or not, as asked.
 
-    Two orders to check: a close that fails on its own, and a close that fails while the suite is
-    already refusing the policy for its answer, where the verdict must survive.
+    Three orders to check: a close that fails on its own, a close that fails while the suite is
+    already refusing the policy for its answer, and - with `cadence=-1`, which no policy may
+    declare - a close that fails while `build_policy` is refusing the policy it just constructed.
+    The verdict must survive all three.
     """
 
     action_type = "ee"
 
-    def __init__(self, executable="1") -> None:
+    def __init__(self, executable="1", cadence="0") -> None:
         self.executable = executable != "0"
+        self.observe_every = int(cadence)
 
     def reset(self, seed: int) -> None:
         pass
@@ -371,6 +374,17 @@ class BadServedClosingPolicy(ClosingPolicy):
     """Says it serves what protocol 3 does not define, and records its close."""
 
     served = {"family": "zerowam", "checkpoint": "/models/mine"}
+
+
+class BadCadenceClosingPolicy(ClosingPolicy):
+    """Declares an observation cadence that means nothing, and records its close.
+
+    `build_policy` is what refuses this one - it reads `observe_every` on the instance it has just
+    constructed - so the policy is closed there rather than by the check that called it. The
+    constructor ran, which is where a runtime opens its weights.
+    """
+
+    observe_every = -1
 
 
 class BufferPolicy:

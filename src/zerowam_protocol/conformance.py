@@ -18,7 +18,9 @@ so it runs beside a simulator's pins on one side and a model's pins on the other
 - `check_policy("module:Class", spec=...)` - the policy builds through `serve.build_policy`, and
   every answer passes `serve.checked_action`, `conventions.check_chunk`, `wire.encode` and, for a
   policy that declares `observe_every`, `observe.check_chunk`. No socket: the failure points at the
-  policy, which is closed however the check ends - what it declares being refused included. With
+  policy, which is closed however the check ends - what it declares being refused included, whether
+  the refusal is this check's or the builder's, because a policy built in this process outlives the
+  check where a served one goes with its server. With
   `repeat=True` the same seed is driven twice and the answers must match, each one copied as it is
   taken so that a policy answering from a buffer it reuses is caught here too.
 - `check_served("module:Class", spec=...)` - the same policy through
@@ -241,6 +243,9 @@ def check_policy(
     check_action_spec(declared)
     bundle.check_public_arrays(arrays)
     info_schema.check_info(record, arrays)
+    # A class `build_policy` itself refuses - an action type nothing executes, a cadence that means
+    # nothing, a missing method - is closed there, by the builder that constructed it: it raises
+    # without handing the instance back, so nothing here could close it.
     built = serve.build_policy(policy, policy_args)
     # Everything the built policy is held to sits inside this `try`: what a policy declares is
     # refused before it is ever driven, and those refusals must close it like any other.
@@ -251,6 +256,8 @@ def check_policy(
                 f"{policy} declares action_type {action_type!r}, the space it is served on "
                 f"{declared['action_type']!r}: a benchmark cannot execute its actions (Q3)"
             )
+        # The cadence as an int. `build_policy` refused a policy whose `observe_every` is not one,
+        # and closed it, so this reads what it already held to `observe.checked_every`.
         every = observe.checked_every(getattr(built, "observe_every", 0))
         try:
             served = checked_served(getattr(built, "served", None))

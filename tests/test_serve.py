@@ -9,6 +9,7 @@ import threading
 from multiprocessing.connection import Listener
 
 import numpy as np
+import policies_for_tests
 import pytest
 from protocol_testing import demonstration, observation, serve, write_bundle
 
@@ -179,6 +180,27 @@ def test_parse_policy_and_build_policy():
     assert parse_policy("pkg.mod:Class") == ("pkg.mod", "Class")
     policy = build_policy("zerowam_protocol.stubs:ZeroPolicy", {"state_channel": "qpos"})
     assert policy.act({"qpos": np.zeros(7)})["action"].shape == (7,)
+
+
+def test_build_policy_closes_a_policy_it_refuses():
+    """The constructor ran before the refusal, so the instance is holding whatever it opened.
+
+    The server exits with a policy it could not build, so nothing there notices; a caller that
+    builds one policy after another in one process - `conformance.check_policy`, a fork's selftest
+    over every runtime it ships - would hold an open expert.npz or a CUDA context for the rest of
+    the run. This is the one refusal path that is `build_policy`'s rather than the check's.
+    """
+    policies_for_tests.CLOSED.clear()
+    with pytest.raises(TypeError, match="observe_every"):
+        build_policy("policies_for_tests:BadCadenceClosingPolicy")
+    assert policies_for_tests.CLOSED == [16]
+
+
+def test_build_policy_keeps_its_refusal_when_that_close_blows_up():
+    """Closing is the tidy-up; what the caller needs is why the policy was refused."""
+    with pytest.raises(TypeError, match="observe_every") as refusal:
+        build_policy("policies_for_tests:RaisingClosePolicy", {"cadence": "-1"})
+    assert "close blew up" not in str(refusal.value)
 
 
 def test_a_policy_that_observes_its_chunk_is_sent_the_stack(tmp_path):
