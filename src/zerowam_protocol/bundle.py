@@ -53,6 +53,14 @@ scored in. A benchmark that records it writes it under `private/`.
 - `cameras` lists the demonstration cameras, the primary one (`camera.name`) first and the rest in
   ascending name order, and names exactly the `frames_` arrays (Q4, Q13).
 
+**Timing, derived from `times` (`frame_timing`).** `write` records `n_frames` (T), `duration_s`
+(`times[-1] - times[0]`) and `fps`: `(T - 1) / duration_s`, rounded to 6 decimals, when every
+interval between frames is within `UNIFORM_RTOL` of their mean (plus `UNIFORM_ULPS` ulps of the
+times themselves, so that uniform frames timed from a wall clock keep their rate), and `null` when
+the times are not uniform (or span no time). They come from the arrays, never from the caller, and
+`read` refuses a manifest whose values disagree with its arrays. `times` stays what a runtime
+resamples by: nothing here resamples a demonstration.
+
 **Errors.** A schema problem is `BundleSchemaError`, at write and at read: the writer is wrong and a
 rebuild repeats it, so a fork exits 2. Anything else `read` finds - a manifest or an npz that cannot
 be read, a missing file, a hash that does not match, a `files` entry that is not one of the
@@ -95,8 +103,11 @@ __all__ = [
     "REQUIRED_KEYS",
     "SCENE_JSON",
     "WRITTEN_KEYS",
+    "UNIFORM_RTOL",
+    "UNIFORM_ULPS",
     "check_public_arrays",
     "digest",
+    "frame_timing",
     "is_public",
     "public_arrays",
     "read",
@@ -118,7 +129,14 @@ EXPERT_NPZ = f"{PRIVATE_DIR}/expert.npz"
 PUBLIC_FILES = (FRAMES_NPZ, PREVIEW_MP4)
 
 #: What `write` fills in. A caller that passes one is refused: these come from what is on disk.
-WRITTEN_KEYS = ("bundle_version", "files", "private_files")
+WRITTEN_KEYS = (
+    "bundle_version",
+    "files",
+    "private_files",
+    "n_frames",
+    "duration_s",
+    "fps",
+)
 #: What every manifest must carry: the caller's keys, and `WRITTEN_KEYS`.
 REQUIRED_KEYS = (
     "bundle_version",
@@ -138,6 +156,9 @@ REQUIRED_KEYS = (
     "fingerprint_sha256",
     "files",
     "private_files",
+    "n_frames",
+    "duration_s",
+    "fps",
 )
 
 #: The public allow-list (decision Q4): the only arrays a bundle's npz may hold and a policy is
@@ -153,6 +174,14 @@ CAMERA_FIELDS = {
     "mimicgen": ("name", "w", "h", "fovy", "pose"),
     "humangen": ("name", "w", "h", "source", "video"),
 }
+
+#: Frame times are uniform, and `fps` is recorded, when every interval is within this fraction of
+#: the mean interval, plus `UNIFORM_ULPS`.
+UNIFORM_RTOL = 1e-6
+#: The floor under that tolerance, in ulps of the times themselves: `times` need not start at zero
+#: (Q4), and at a wall-clock origin one ulp of a time is already a larger share of an interval than
+#: `UNIFORM_RTOL` is, so uniform frames would lose their rate to the float grid alone.
+UNIFORM_ULPS = 4
 
 _CHUNK = 1 << 20
 _SHA256_HEX = frozenset("0123456789abcdef")
@@ -223,6 +252,7 @@ def write(
         raise BundleSchemaError(f"manifest: {'; '.join(problems)}")
     record = dict(manifest)
     record["bundle_version"] = BUNDLE_VERSION
+    record.update(frame_timing(arrays["times"]))
     _json_text(record, "manifest")  # refused now, before anything is written
     private_text = None if private is None else _json_text(private, "private")
     expert_arrays = None if expert is None else _checked_expert(expert)
@@ -279,6 +309,12 @@ def read(bundle_dir: str | Path, *, verify: bool = True) -> tuple[dict[str, Any]
     # What only `write` fills in is checked first: when it is wrong, the manifest was changed.
     files = _checked_files(manifest.get("files"), path / DEMO_JSON)
     private_files = _checked_private_files(manifest.get("private_files"), path / DEMO_JSON)
+    lacking = [key for key in WRITTEN_KEYS if key not in manifest]
+    if lacking:
+        raise BundleError(
+            f"{path / DEMO_JSON}: lacks {', '.join(lacking)}, which bundle.write fills in: the "
+            "manifest was changed after it was written"
+        )
     missing = [key for key in REQUIRED_KEYS if key not in manifest]
     if missing:
         raise BundleSchemaError(f"{path / DEMO_JSON}: manifest is missing {', '.join(missing)}")
@@ -291,6 +327,12 @@ def read(bundle_dir: str | Path, *, verify: bool = True) -> tuple[dict[str, Any]
     problems = _camera_problems(manifest, _frame_sizes(arrays), f"the arrays of {FRAMES_NPZ}")
     if problems:
         raise BundleSchemaError(f"{path / DEMO_JSON}: {'; '.join(problems)}")
+    for key, value in frame_timing(arrays["times"]).items():
+        if manifest[key] != value or type(manifest[key]) is not type(value):
+            raise BundleError(
+                f"{path / DEMO_JSON}: {key} is {manifest[key]!r}, but its times give {value!r}: "
+                "the manifest was changed after it was written"
+            )
     return manifest, arrays
 
 
@@ -320,6 +362,41 @@ def check_public_arrays(arrays: Mapping[str, Any]) -> None:
         problems = _times_problems(arrays["times"])
     if problems:
         raise BundleSchemaError(f"demonstration arrays: {'; '.join(problems)}")
+
+
+def frame_timing(times: Any) -> dict[str, Any]:
+    """`{n_frames, duration_s, fps}` of a demonstration, derived from its `times` alone.
+
+    `n_frames` is T. `duration_s` is `times[-1] - times[0]`, 0.0 for a single frame. `fps` is
+    `(T - 1) / duration_s`, rounded to 6 decimals, when the times are uniform - every interval
+    within `UNIFORM_RTOL` of the mean interval, and the mean above zero - and None otherwise: for
+    uneven times, a single frame, or frames that all share one time. A consumer that needs a rate
+    for uneven times resamples by `times` itself.
+
+    The times need not start at zero (Q4), so the tolerance has a floor of `UNIFORM_ULPS` ulps of
+    the largest time: from a wall-clock origin one ulp of a time is already a bigger share of a
+    1/30 s interval than `UNIFORM_RTOL` is, and uniform frames would otherwise be recorded with no
+    rate at all for the float grid they were rounded onto. The rate then carries that grid too
+    (30 Hz from the epoch reads back as 30.000002), so a benchmark that can records times
+    relative to the episode, not to a wall clock.
+    """
+    try:
+        values = np.asarray(times, dtype=np.float64)
+    except (TypeError, ValueError, OverflowError) as exc:
+        # Object dtypes, text and an int no double can hold are refused here like a wrong shape:
+        # this is a public helper, and every refusal it makes is a BundleError (Q4).
+        raise BundleSchemaError(f"times are not real numbers: {exc} (Q4)") from None
+    if values.ndim != 1 or not len(values) or not np.isfinite(values).all():
+        raise BundleSchemaError(f"times of shape {values.shape} give no timing (Q4)")
+    count = len(values)
+    duration = float(values[-1] - values[0])
+    fps = None
+    if count > 1 and duration > 0:
+        mean = duration / (count - 1)
+        grid = UNIFORM_ULPS * float(np.spacing(float(np.max(np.abs(values)))))
+        if np.all(np.abs(np.diff(values) - mean) <= UNIFORM_RTOL * mean + grid):
+            fps = round((count - 1) / duration, 6)
+    return {"n_frames": count, "duration_s": duration, "fps": fps}
 
 
 # -- the schema ---------------------------------------------------------------------------------

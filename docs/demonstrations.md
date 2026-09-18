@@ -125,6 +125,8 @@ A fork catches `BundleSchemaError` before `BundleError`. A `BundleSchemaError` r
 | `frames_<camera>` | uint8 | (T, H, W, 3), RGB, row 0 at the top | One per name in `info.demo_cameras`. Native resolution and native recording rate: never resampled or resized by the benchmark. All share T, and T ≥ 2. |
 | `times` | float64 | (T,) | Seconds. Finite and never decreasing. `frames_*[t]` was recorded at `times[t]`. `times[0]` need not be 0. |
 
+`bundle.write` records in `demo.json`, from `times` alone (`bundle.frame_timing`): `n_frames` (T), `duration_s` (`times[-1] - times[0]`) and `fps` (`(T - 1) / duration_s`, rounded to 6 decimals, when every interval is within `bundle.UNIFORM_RTOL` of the mean plus `bundle.UNIFORM_ULPS` ulps of the times themselves; `null` when the times are uneven). They are for reading; `times` is what a runtime resamples by. The ulp floor is what keeps a rate recordable when `times[0]` is a wall clock; the rate then carries that grid (30 Hz from the epoch reads back as 30.000002), so record times relative to the episode where you can.
+
 ---
 
 ## 4. What `set_demonstration` carries

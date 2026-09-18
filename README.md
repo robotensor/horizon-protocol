@@ -124,7 +124,9 @@ JSON carries that no double can hold - is a `BundleError`, never an `OSError`, a
 or numpy's own `ValueError`.
 
 Video is stored at the benchmark's native frame rate with `times` beside it. Nothing here resamples
-it: one bundle serves every model, and each runtime resamples for itself.
+it: one bundle serves every model, and each runtime resamples for itself. `write` records what the
+times give in `demo.json`: `n_frames`, `duration_s` and `fps`, which is `null` when the times are
+not uniformly spaced (`bundle.frame_timing`).
 
 ## Results
 
