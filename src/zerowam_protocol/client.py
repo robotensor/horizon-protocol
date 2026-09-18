@@ -1,10 +1,13 @@
 """`RemotePolicy`: what a benchmark drives a served policy with.
 
     with RemotePolicy(address, authkey, timeout_s=60.0, log_file=server_log) as policy:
-        policy.hello()                     # {"protocol": 1, "action_type": ..., "policy": ...}
+        policy.hello()        # {"protocol": 2, "action_type": ..., "observe_every": N, ...}
         policy.set_demonstration(prompt_arrays, info)
         policy.reset(seed)
         action = policy.act(observation)["action"]  # (A,) or a chunk (H, A)
+
+When the policy's `observe_every` is N > 0, `observation` is the stack of observations recorded
+every N actions since the last `act` (`zerowam_protocol.observe`), not the current one alone.
 
 It needs numpy and the standard library only. A benchmark imports it; the competitor's side runs
 `python -m zerowam_protocol.serve`.
@@ -43,7 +46,7 @@ from typing import Any
 
 import numpy as np
 
-from . import __version__, logs, wire
+from . import __version__, logs, observe, wire
 from .errors import PolicyUnavailable, WireError
 from .policy import ACTION_TYPES
 
@@ -78,6 +81,9 @@ class RemotePolicy:
         self.log_file = log_file
         #: The served policy's action type, known once `hello` has been answered.
         self.action_type: str | None = None
+        #: Record an observation every this many actions of a chunk (0: only the current one), known
+        #: once `hello` has been answered. `zerowam_protocol.observe` has the rule.
+        self.observe_every = 0
         self._sock: socket.socket | None = None
         self._conn: Connection | None = None
         self._closed = False
@@ -91,7 +97,8 @@ class RemotePolicy:
     # -- the protocol -----------------------------------------------------------------------
 
     def hello(self) -> dict[str, Any]:
-        """Greet the server, which builds the policy now: `protocol`, `action_type`, `policy`."""
+        """Greet the server, which builds the policy now: `protocol`, `action_type`,
+        `observe_every` and `policy`."""
         try:
             fields, _ = self._call("hello", {"client": f"zerowam-protocol {__version__}"})
         except PolicyUnavailable:
@@ -106,7 +113,13 @@ class RemotePolicy:
         if action_type not in ACTION_TYPES:
             self._abandon()
             raise self._unavailable("hello", f"the policy declares action_type {action_type!r}")
+        try:
+            every = observe.checked_every(fields.get("observe_every"))
+        except ValueError as exc:
+            self._abandon()
+            raise self._unavailable("hello", str(exc)) from None
         self.action_type = action_type
+        self.observe_every = every
         return dict(fields)
 
     def reset(self, seed: int) -> None:

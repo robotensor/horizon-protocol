@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import contextlib
+import secrets
+import threading
+from multiprocessing.connection import Listener
+
 import numpy as np
 import pytest
 from protocol_testing import demonstration, observation, serve, write_bundle
 
-from zerowam_protocol import PolicyUnavailable, bundle
+from zerowam_protocol import PolicyUnavailable, bundle, observe, wire
+from zerowam_protocol.client import RemotePolicy
 from zerowam_protocol.serve import build_policy, parse_policy
 
 
@@ -27,6 +33,9 @@ def test_hello_then_an_episode(zero_policy):
 
     assert greeting["action_type"] == "ee"
     assert greeting["policy"] == "zerowam_protocol.stubs:ZeroPolicy"
+    assert greeting["protocol"] == 2
+    assert greeting["observe_every"] == 0  # a policy that does not declare it is sent one frame
+    assert zero_policy.policy.observe_every == 0
     assert action.shape == (16,)
     assert not action.any()
 
@@ -129,3 +138,68 @@ def test_parse_policy_and_build_policy():
     assert parse_policy("pkg.mod:Class") == ("pkg.mod", "Class")
     policy = build_policy("zerowam_protocol.stubs:ZeroPolicy", {"width": "7"})
     assert policy.act({})["action"].shape == (7,)
+
+
+def test_a_policy_that_observes_its_chunk_is_sent_the_stack(tmp_path):
+    """The benchmark records every N actions and sends the frames with the next act."""
+    served = serve(tmp_path, "policies_for_tests:ObservingPolicy")
+    try:
+        greeting = served.policy.hello()
+        served.policy.set_demonstration(*demonstration())
+        served.policy.reset(3)
+        first = served.policy.act(observe.stack([observation()]))
+        recorded = []
+        for index in range(2):  # a chunk of 8 at observe_every 4
+            frame = observation()
+            frame["qpos"] = np.full_like(frame["qpos"], index + 1)
+            recorded.append(frame)
+        second = served.policy.act(observe.stack(recorded))
+    finally:
+        served.close()
+
+    assert greeting["observe_every"] == 4
+    assert served.policy.observe_every == 4
+    assert list(first["seen_shape"]) == [1, 8, 10, 3]
+    assert list(second["seen_shape"]) == [2, 8, 10, 3]
+    assert list(second["seen_first"]) == [1, 2]  # oldest first
+    observe.check_chunk(len(second["action"]), greeting["observe_every"])
+
+
+def test_a_policy_with_a_meaningless_observe_every_cannot_be_built(tmp_path):
+    served = serve(tmp_path, "policies_for_tests:NegativeObservePolicy")
+    try:
+        with pytest.raises(PolicyUnavailable, match="observe_every"):
+            served.policy.hello()
+    finally:
+        served.close()
+    assert served.process.wait(timeout=20) == 1
+
+
+@pytest.mark.parametrize("reply", [{}, {"observe_every": -2}, {"observe_every": True}])
+def test_a_client_refuses_a_hello_without_a_usable_observe_every(tmp_path, reply):
+    """A server that cannot say how often it wants frames cannot be driven safely."""
+    address = str(tmp_path / "fake.sock")
+    authkey = secrets.token_bytes(32)
+    listener = Listener(address, family="AF_UNIX", authkey=authkey)
+
+    def answer_hello_once():
+        with listener.accept() as conn:
+            wire.recv(conn)
+            wire.send(
+                conn,
+                "ok",
+                {"protocol": wire.PROTOCOL_VERSION, "action_type": "ee", "policy": "fake", **reply},
+            )
+            with contextlib.suppress(EOFError, OSError):
+                conn.recv_bytes()  # hold the line until the client hangs up
+
+    server = threading.Thread(target=answer_hello_once, daemon=True)
+    server.start()
+    try:
+        client = RemotePolicy(address, authkey, timeout_s=10)
+        with pytest.raises(PolicyUnavailable, match="observe_every"):
+            client.hello()
+        client.close()
+    finally:
+        server.join(timeout=10)
+        listener.close()

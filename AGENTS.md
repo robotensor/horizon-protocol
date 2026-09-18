@@ -14,6 +14,8 @@ reads the results). A change here is a change to all of them.
 - `serve.py` — `python -m zerowam_protocol.serve --policy MODULE:CLASS`, one policy, one client.
 - `client.py` — `RemotePolicy`, what a benchmark drives it with. Every failure is `PolicyUnavailable`.
 - `wire.py` — the message format: a JSON header frame, then one raw little-endian frame per array.
+- `observe.py` — what a policy that declares `observe_every` is sent between chunks: `stack`,
+  `check_chunk`.
 - `bundle.py` — the demonstration bundle: `demo.json`, `demo_frames.npz`, `private/`.
 - `result.py` — `result.json`: `outcome` (`success`/`failure`/`void`) and `void_cause`.
 - `stubs.py` — `ZeroPolicy` and `ReplayPolicy`, the model-free smoke tests.

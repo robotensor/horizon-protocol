@@ -8,6 +8,13 @@ All notable changes to this distribution. The format follows
 
 ### Added
 
+- Protocol 2: a policy may declare `observe_every = N`, returned in the reply to `hello`. The
+  benchmark then records an observation after every N-th action of a chunk and sends them, stacked
+  oldest first, with the next `act`; a chunk whose length is not a multiple of N is refused.
+  `zerowam_protocol.observe` holds the rule, `stack` and `check_chunk`. Under protocol 1 a model
+  that conditions on what its own chunk did - Zero-WAM does - could only run blind. N = 0, the
+  default, is protocol 1's behaviour. Both ends check the version. (#1)
+
 - The wire format, `RemotePolicy` and `python -m zerowam_protocol.serve`, ported from `icil-policy`
   in ICIL-competition-orchestrator. A policy is named by `module:Class` and built with
   `--policy-arg` values; submissions here are weights only, so there is no repository manifest.

@@ -10,6 +10,7 @@ benchmark, no channel name, no simulator and no model.
 - `python -m zerowam_protocol.serve`: serves that policy to one client.
 - `zerowam_protocol.client.RemotePolicy`: the client a benchmark drives it with.
 - `zerowam_protocol.wire`: the message format between them.
+- `zerowam_protocol.observe`: what a policy that declares `observe_every` is sent between chunks.
 - `zerowam_protocol.bundle`: the demonstration bundle a benchmark writes once per unit.
 - `zerowam_protocol.result`: the result a benchmark writes for every evaluated unit.
 - `zerowam_protocol.stubs`: `ZeroPolicy` and `ReplayPolicy`, the model-free smoke tests.
