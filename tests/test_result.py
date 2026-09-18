@@ -4,7 +4,13 @@ import json
 
 import numpy as np
 import pytest
-from protocol_testing import TOO_BIG_FOR_A_DOUBLE, result_fields, write_bundle
+from protocol_testing import (
+    TOO_BIG_FOR_A_DOUBLE,
+    TOO_LONG_A_NAME,
+    refuse_lookup,
+    result_fields,
+    write_bundle,
+)
 
 from zerowam_protocol import bundle, result
 
@@ -290,6 +296,32 @@ def test_write_refuses_a_result_that_is_a_symlink_and_writes_nothing_through_it(
     with pytest.raises(ValueError, match="result.json: a symlink"):
         result.write(run, **result_fields())
     assert not elsewhere.exists()
+
+
+@pytest.mark.parametrize("call", ["write", "read"])
+def test_a_run_directory_the_os_will_not_look_up_is_a_value_error_not_an_oserror(tmp_path, call):
+    """ENAMETOOLONG, as root too; EACCES (no search permission) takes the same lines."""
+    run = tmp_path / TOO_LONG_A_NAME / "run"
+    with pytest.raises(ValueError, match="cannot be (written|read)"):
+        if call == "write":
+            result.write(run, **result_fields())
+        else:
+            result.read(run)
+
+
+@pytest.mark.parametrize("call", ["write", "read"])
+@pytest.mark.parametrize("name", [result.RESULT_JSON, result.ROLLOUT_MP4])
+def test_a_run_file_the_os_will_not_look_up_is_a_value_error(tmp_path, monkeypatch, name, call):
+    """A file listed in a directory that refuses its lookup (mode r--, any user but root)."""
+    (tmp_path / result.ROLLOUT_MP4).write_bytes(b"not really a video")
+    result.write(tmp_path, **result_fields())
+    refuse_lookup(monkeypatch, name)
+
+    with pytest.raises(ValueError, match="cannot be (written|read)"):
+        if call == "write":
+            result.write(tmp_path, **result_fields())
+        else:
+            result.read(tmp_path)
 
 
 def test_read_refuses_a_value_json_cannot_hold(tmp_path):

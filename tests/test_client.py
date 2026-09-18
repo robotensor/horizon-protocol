@@ -180,7 +180,8 @@ def test_a_budget_that_is_not_a_budget_is_refused_before_connecting(tmp_path, bu
     """One rule for the three, as serve's --idle-timeout-s: an infinite budget is no "no timeout",
     it was an OverflowError out of the socket or a deadline thread that died."""
     with pytest.raises(ValueError, match=f"{budget} must be a positive, finite number"):
-        RemotePolicy(str(tmp_path / "nothing.sock"), b"k" * 32, **{budget: value})
+        # timeout_s short beside the other two, so a regression fails fast instead of connecting
+        RemotePolicy(str(tmp_path / "nothing.sock"), b"k" * 32, **{"timeout_s": 0.1, budget: value})
 
 
 def test_an_info_that_is_not_Q14s_is_refused_before_a_byte_is_sent(recorder):
