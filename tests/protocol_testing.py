@@ -79,21 +79,35 @@ def pose_row(arms: int = 2, gripper: float = 0.5, seed: int = 3):
 
 
 def demonstration(steps: int = 6, cameras=("head", "left_wrist")):
-    """A demonstration as a policy is given it (Q4): frames and times, at a native, uneven rate."""
+    """A demonstration as a policy is given it (Q4): frames and times, at a native, uneven rate.
+
+    The `info` beside them is Q14's: the demonstration's own channels in `demo_cameras`, the
+    evaluated robot's observation cameras in `cameras`, and the action space in `action_spec`
+    alone.
+    """
     rng = np.random.default_rng(7)
     arrays = {
         f"frames_{camera}": rng.integers(0, 255, (steps, 8, 10, 3), np.uint8) for camera in cameras
     }
     arrays["times"] = np.cumsum(rng.uniform(0.05, 0.08, steps))
-    info = {
-        "cameras": list(cameras),
+    return arrays, info(demo_cameras=list(cameras))
+
+
+def info(**overrides):
+    """What a fork sends beside a demonstration (Q14), matching `observation()`'s cameras."""
+    record = {
         "embodiment": "aloha-agilex",
-        "action_type": "ee",
-        "action_dim": 16,
-        "control_hz": 250.0 / 15.0,
         "action_spec": aloha_spec(),
+        "cameras": [
+            {"name": "head", "role": "ego", "w": 10, "h": 8},
+            {"name": "left_wrist", "role": "wrist_left", "w": 10, "h": 8},
+        ],
+        "demo_cameras": ["head", "left_wrist"],
+        "step_limit": 400,
+        "instruction": "Follow the demonstrated behavior.",
     }
-    return arrays, info
+    record.update(overrides)
+    return record
 
 
 def expert(steps: int = 6, dims: int = 14):

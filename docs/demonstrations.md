@@ -17,7 +17,7 @@ This page is for someone who adds a benchmark (a fork that writes bundles) or a 
 | P13 | this repo | the check at send | landed: `RemotePolicy.set_demonstration` refuses a non-allow-listed array before a byte is sent |
 | P14 | this repo | the input vocabulary | landed: `bundle.DEMONSTRATION_INPUTS`, `bundle.PROMPT_LANGUAGES`, `bundle.check_demonstration_inputs` |
 | P10 | this repo | conformance | pending |
-| P11 | this repo | `info` keys | pending |
+| P11 | this repo | `info` keys | landed: `zerowam_protocol.info` (`REQUIRED_KEYS`, `check_info`), checked by `RemotePolicy.set_demonstration` and by the server |
 | P4 | this repo | the optional `stub_policy` field in `result.json` | landed: `result.write(..., stub_policy="zero" \| "replay")`, checked by `result.read`, with result version 2 |
 | RT3, RT9, RT11, RT16 | RoboTwin fork | exit 2, stub marking, `info` keys, tests | pending |
 | RC1, RC11 | robocasa fork | exit 2, tests | pending |
@@ -139,13 +139,14 @@ manifest, arrays = bundle.read(bundle_dir)  # refuses a bundle with a disallowed
 policy.set_demonstration(bundle.public_arrays(arrays), info)
 ```
 
-- **`arrays`:** exactly `bundle.public_arrays(arrays)`. That is `frames_<camera>` for each demonstration camera, and `times`.
-- **`info`:** the keys Q14 defines. Only the three keys in §5 come from the demonstration. The rest describe the evaluation:
-  - `embodiment`;
-  - `action_spec` (Q3);
-  - `cameras` (the observation cameras, Q3);
+- **`arrays`:** exactly `bundle.public_arrays(arrays)`. That is `frames_<camera>` for each demonstration camera, and `times`. The server holds a `prompt`'s arrays to the allow-list as well, so a client that is not `RemotePolicy` cannot hand a policy the demonstrator's record either; either refusal is an error reply the session survives.
+- **`info`:** the keys Q14 defines, held to them by `zerowam_protocol.info.check_info(info, arrays)`, which the client runs before it sends and the server runs on every `prompt`. Only the three keys in §5 come from the demonstration. The rest describe the evaluation:
+  - `embodiment`, the robot a runtime looks up in its own table;
+  - `action_spec` (Q3), which alone describes the action space: `action_type`, `action_dim`, `action_dims` and `control_hz` are refused at the top level;
+  - `cameras` (the observation cameras, `{name, role, w, h}` each, Q3);
   - `step_limit`;
-  - …
+  - a fork's own keys, which nothing here reads.
+  An `info` that breaks the schema is a `BundleSchemaError`: the benchmark's error (exit 2), like an array outside the allow-list. Its values, a fork's own keys included, are plain JSON: a numpy scalar or a `Path` among them is refused by `check_info` with every other problem, never by the encoder a frame later.
 - **Other messages.** `reset` carries only the policy seed. `act` carries only the evaluated robot's own observation (§1.1): `frames_<name>` for each `name` in `info.cameras`, the array `info.action_spec.state_channel` names (`endpose`), and the native `qpos`, with layouts per Q3.
 - **Never.** No message carries `private/`, `demo.json`'s `scene_seed` or fingerprint (Q5), or any demonstrator record.
 
@@ -158,6 +159,8 @@ policy.set_demonstration(bundle.public_arrays(arrays), info)
 | `demo_cameras` | list[str], non-empty | Camera names, without the `frames_` prefix. Element 0 is the primary camera, the manifest's `camera.name` (Q13); the rest follow in ascending name order. The list equals the set of `frames_` arrays, and the manifest's `cameras` list (`demo.json`) is identical, in the same order. Do not confuse it with `info.cameras`, which lists the evaluated robot's observation cameras as `{name, role, w, h}` (Q3): on HumanGen, `demo_cameras` is `["human"]` while `info.cameras` names the robot's cameras. Required. |
 | `instruction` | str | Exactly `"Follow the demonstrated behavior."`, on every axis. Required. Never task metadata. |
 | `demo_text` | non-empty str | Present if and only if the demonstration's own source supplies a caption of that exact video. Today that is only `demo_source == "humangen"` with `humangen.caption: true`, and the value is the pairing file's `human_task_name` for that video. When absent, the key is omitted: never `""` and never `null`. A benchmark never writes a caption of its own, because that would be task language. |
+
+`check_info` refuses a missing key, an `instruction` that is not exactly that sentence, an empty or null `demo_text`, and a `demo_cameras` that does not name exactly the `frames_` arrays the demonstration carries. It never validates a camera or channel name: those are the benchmark's words (Q14).
 
 ---
 
@@ -318,7 +321,7 @@ Zero-WAM takes part in neither route under D1 and the current architecture: it h
 |---|---|---|
 | A fork makes `qpos`, `endpose` or `actions` public on a `same_as_demo` axis. That gives every policy the replay trajectory for the scene it is scored in. | The allow-list refuses them at write, at read and at send | `bundle.write`, `bundle.read`, `RemotePolicy.set_demonstration` |
 | A fork adds the record under a new name (`demo_joints`, `gripper_track`) | The allow-list is closed. Only `frames_*` and `times` pass. | same |
-| A fork puts the record in `demo.json` or `info` | P11's `info` schema and P10's `check_info` fix the demonstration keys and their values; review of the fork's `info` builder against Q14's key list catches the rest. `demo.json` is never sent and never leaves before close. | P10, P11, Q4-8 |
+| A fork puts the record in `demo.json` or `info` | P11's `info` schema and its `check_info` fix the demonstration keys and their values, at both ends of the socket; review of the fork's `info` builder against Q14's key list catches the rest. `demo.json` is never sent and never leaves before close. | P10, P11, Q4-8 |
 | A fork smuggles the record into per-step observations | Fork tests pin each axis's observation key set to the evaluated robot's own channels | RT16, RC11 |
 | The harness's evaluation reads `expert.npz` while serving a submission | A fork test with an `expert.npz` made unloadable as data (§8) | RT16, RC11 |
 | `ReplayPolicy` is served as if it were a submission | A stub run records `stub_policy`, and scoring refuses it outside a dry run | RT9, C10 |

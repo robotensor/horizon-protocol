@@ -26,9 +26,11 @@ implementers follow.
 - **Landed in this package:** `zerowam_protocol.conventions` (P9): the constants, `check_action_spec`
   (C-P1), `check_chunk(a, spec)` (C-P2), `check_observation(obs, spec, cameras)` (C-P3),
   `arm_slices` and `same_rotation`. `demo.json`'s `action_spec`, required and checked with
-  `check_action_spec` by `bundle.write` and `bundle.read`, with `BUNDLE_VERSION` 2 (P2).
-- **Pending in this package:** the `info` schema with `action_spec` is P11 and ships with
-  `PROTOCOL_VERSION` 3 (P6); `zerowam_protocol.conformance`, the helpers the forks' checks use, is
+  `check_action_spec` by `bundle.write` and `bundle.read`, with `BUNDLE_VERSION` 2 (P2). The `info`
+  schema, `zerowam_protocol.info` (P11): `REQUIRED_KEYS` and `check_info`, run by
+  `RemotePolicy.set_demonstration` before it sends and by the server on every `prompt`, with
+  `PROTOCOL_VERSION` 3 (P6).
+- **Pending in this package:** `zerowam_protocol.conformance`, the helpers the forks' checks use, is
   P10.
 - **Pending elsewhere:** the forks' side is RT5, RT10, RT11 (RoboTwin) and RC4, RC5, RC9
   (robocasa); the runtime's is RU5, RU8, RU9, RU10 and G7; the competition's check is C3. Issues:
@@ -237,9 +239,13 @@ number a fork or a file gave it: `demo.json`'s `camera.pose` and `camera.fovy`, 
   benchmark renders them. `name` MUST match an observation array `frames_<name>`.
 - `demo_cameras` names the demonstration's channels. They never go in `cameras`. (`demo.json`'s own
   `cameras` list is the demonstration's channels, equal to `demo_cameras`; it is not `info.cameras`.)
-- `action_type`, `action_dim`, `action_dims` and `control_hz` MUST NOT appear at the top level.
+- `action_type`, `action_dim`, `action_dims` and `control_hz` MUST NOT appear at the top level
+  (`conventions.REFUSED_INFO_KEYS`).
 - The other keys (`embodiment`, `step_limit`, `instruction`, `demo_text`, …) are defined by the
-  protocol's `info` schema (zerowam-competition decisions Q14 and Q4).
+  protocol's `info` schema (zerowam-competition decisions Q14 and Q4): `zerowam_protocol.info`
+  holds it, and `check_info(info, arrays)` refuses an `info` that breaks it with
+  `BundleSchemaError`, at the client before a byte is sent and at the server on every `prompt`.
+  A fork MAY add keys of its own; none of them is read here.
 - No frame rate is declared per camera. Observations are taken between executed actions (how often
   is the policy's `observe_every`), so their timing is that of the actions; a demonstration's timing
   is its `times` array.

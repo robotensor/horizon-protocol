@@ -178,3 +178,27 @@ def test_each_call_carries_its_own_budget(recorder):
 def test_a_budget_that_is_not_a_budget_is_refused_before_connecting(tmp_path, budget):
     with pytest.raises(ValueError, match=f"{budget} must be positive"):
         RemotePolicy(str(tmp_path / "nothing.sock"), b"k" * 32, **{budget: 0})
+
+
+def test_an_info_that_is_not_Q14s_is_refused_before_a_byte_is_sent(recorder):
+    """A demonstration is its arrays and its `info`; both are the benchmark's to get right."""
+    arrays, info = demonstration()
+    client = recorder.client(timeout_s=10)
+
+    for broken, named in (
+        ({key: value for key, value in info.items() if key != "embodiment"}, "embodiment"),
+        ({**info, "action_dims": [7, 7]}, "action_dims at the top level"),
+        ({**info, "instruction": "Click the bell."}, "instruction"),
+    ):
+        with pytest.raises(BundleSchemaError, match="nothing was sent") as refused:
+            client.set_demonstration(arrays, broken)
+        assert named in str(refused.value)
+        assert not isinstance(refused.value, PolicyUnavailable)
+    assert recorder.arrived() is False
+
+    greeting = client.hello()  # the connection was left as it was
+    client.close()
+    recorder.finish()
+
+    assert greeting["policy"] == "recorder"
+    assert recorder.ops == ["hello", "close"]

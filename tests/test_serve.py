@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import multiprocessing.connection as mp_connection
 import secrets
 import threading
 from multiprocessing.connection import Listener
@@ -51,6 +52,44 @@ def test_the_demonstration_from_a_bundle_reaches_the_policy(tmp_path):
         assert served.policy.act(observation())["action"].shape == (16,)
     finally:
         served.close()
+
+
+def test_a_client_that_is_not_remotepolicy_cannot_hand_a_policy_the_experts_record(tmp_path):
+    """Q4 at the socket, not only at the send: the server holds a prompt's arrays to the
+    allow-list as it holds its `info` to Q14, so the demonstrator's record cannot reach a policy
+    from a fork's own client. The session survives: the message was the benchmark's error."""
+    _, arrays, info, record = write_bundle(tmp_path / "unit")
+    served = serve(tmp_path / "serve", "zerowam_protocol.stubs:ZeroPolicy", max_sessions=2)
+    served.policy.hello()
+    served.policy.close()  # session one, so the raw client below gets session two
+    conn = mp_connection.Client(served.address, family="AF_UNIX", authkey=served.authkey)
+    try:
+        wire.send(
+            conn,
+            "hello",
+            {
+                "client": "a fork of its own",
+                "protocol": wire.PROTOCOL_VERSION,
+                "action_types": ["ee"],
+                "honors_observe_every": False,
+            },
+        )
+        assert wire.recv(conn)[0] == "ok"
+
+        privileged = {**arrays, "endpose": record["endpose"], "ee_actions": record["ee_actions"]}
+        wire.send(conn, "prompt", {"info": info}, privileged)
+        op, fields, _ = wire.recv(conn)
+
+        assert op == "error"
+        assert fields["type"] == "BundleSchemaError"
+        assert "endpose" in fields["message"] and "Q4" in fields["message"]
+
+        wire.send(conn, "prompt", {"info": info}, arrays)  # the session survived the refusal
+        assert wire.recv(conn)[0] == "ok"
+        wire.send(conn, "close")
+    finally:
+        conn.close()
+        served.process.wait(timeout=20)
 
 
 def test_replay_stub_returns_the_expert_actions(tmp_path):

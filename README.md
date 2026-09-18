@@ -72,6 +72,25 @@ per-call budgets default to `timeout_s`, and each call is bounded by its own alo
 Every way the policy can fail — an error reply, a timeout, a hang-up, a malformed message — raises
 `PolicyUnavailable`, and the benchmark decides what it costs the unit.
 
+The `info` beside a demonstration carries the keys decision Q14 names, and both ends check them
+(`zerowam_protocol.info.check_info`):
+
+| Key | What it says |
+|---|---|
+| `embodiment` | the robot, which a runtime looks up in its own table |
+| `action_spec` | the action and observation space (decision Q3) |
+| `cameras` | the evaluated robot's **observation** cameras, `{name, role, w, h}` each |
+| `demo_cameras` | the **demonstration**'s own channels, exactly the `frames_` arrays sent |
+| `step_limit` | how many actions the unit allows |
+| `instruction` | always `"Follow the demonstrated behavior."`, never task language |
+| `demo_text` | optional: the video's own caption, where its source supplies one |
+
+The action space is `action_spec`'s alone, so `action_type`, `action_dim`, `action_dims` and
+`control_hz` at the top level are refused; channel names inside stay free strings, which nothing
+here validates. An `info` that breaks the schema is a `BundleSchemaError` before a byte is sent —
+the benchmark's own error (exit 2), never `PolicyUnavailable` — and the server checks it too, so a
+client that is not `RemotePolicy` cannot hand a policy another `info`.
+
 ## Conventions and demonstrations
 
 **The convention (decision Q3).** Every number a benchmark and a model exchange means the same thing
@@ -142,7 +161,8 @@ A policy is given a demonstration's video, `frames_<camera>`, and its `times`, a
 `bundle.PUBLIC_NAMES`, is closed: `bundle.write` and `bundle.read` refuse any other array with
 `BundleSchemaError`, a `BundleError` that a benchmark maps to exit 2 (fix the writer), where any
 other `BundleError` is exit 4 (rebuild the unit). `RemotePolicy.set_demonstration` refuses them too,
-before a byte is sent, so arrays a benchmark assembles itself never reach a policy either.
+before a byte is sent, and the server refuses them again on every `prompt`, so the demonstrator's
+record reaches a policy from no client, `RemotePolicy` or not.
 
 `write` and `read` hold a bundle to one schema: every `frames_<camera>` uint8 RGB `(T, H, W, 3)`
 with one T ≥ 2, `times` float64 `(T,)` and never decreasing, `camera` with exactly the fields

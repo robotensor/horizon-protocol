@@ -11,6 +11,8 @@ benchmark, no channel name, no simulator and no model.
 - `zerowam_protocol.client.RemotePolicy`: the client a benchmark drives it with.
 - `zerowam_protocol.wire`: the message format between them.
 - `zerowam_protocol.observe`: what a policy that declares `observe_every` is sent between chunks.
+- `zerowam_protocol.info`: the keys a demonstration's `info` carries (decision Q14), and the check
+  both ends run.
 - `zerowam_protocol.conventions`: what every action and observation number means (decision Q3),
   and the checks of an `action_spec`, a chunk and an observation.
 - `zerowam_protocol.bundle`: the demonstration bundle a benchmark writes once per unit.

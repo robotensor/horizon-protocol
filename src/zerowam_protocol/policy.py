@@ -6,9 +6,24 @@ values, and then, for as long as its one client is connected:
 - `set_demonstration(arrays, info)` hands it the one demonstration (decision Q4,
   `docs/demonstrations.md`): its video, `frames_<camera>` for each demonstration camera, and its
   `times`, and nothing else. The demonstrator's state and actions (`qpos`, `endpose`, `actions`,
-  ...) never reach a policy, on any axis. `info` carries public fields only, such as the
-  demonstration cameras, the generic instruction, a HumanGen video's own caption where there is one,
-  and the action space. Privileged scene data never reaches a policy.
+  ...) never reach a policy, on any axis. Privileged scene data never reaches a policy.
+
+  `info` carries public fields only, and its keys are the protocol's (decision Q14,
+  `zerowam_protocol.info`, which both ends check on every `prompt`):
+
+  | Key | What a policy is told |
+  |---|---|
+  | `embodiment` | the robot, which a runtime looks up in its own table |
+  | `action_spec` | the action and observation space (Q3), including its `state_channel` |
+  | `cameras` | the evaluated robot's observation cameras, `{name, role, w, h}` each |
+  | `demo_cameras` | the demonstration's own channels: exactly the `frames_` arrays sent |
+  | `step_limit` | how many actions the unit allows |
+  | `instruction` | always `"Follow the demonstrated behavior."` |
+  | `demo_text` | optional: the video's own caption, where its source supplies one |
+
+  The action space is `action_spec`'s alone: `action_type`, `action_dim`, `action_dims` and
+  `control_hz` at the top level are refused. Every name inside is the benchmark's own word, which
+  nothing here validates, and a fork may add keys of its own that no runtime need read.
 - `reset(seed)` starts an episode. The same seed is given to every model evaluated on that unit, so
   a policy that samples should seed from it.
 - `act(observation)` answers one observation with at least `{"action": ...}`, one action of shape
