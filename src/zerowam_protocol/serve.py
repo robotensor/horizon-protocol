@@ -20,7 +20,8 @@ then on each `reset`, `prompt` and `act` calls the policy once and answers `ok` 
 that is malformed - not a JSON header, a refused dtype, a pickle - is answered with an error and
 ends the session, because nothing after it can be trusted to line up. No server outlives its
 client: when the client hangs up, even in the middle of a policy call that never returns, the
-process exits, and a client that holds the connection with nothing to say for `--idle-timeout-s`
+process exits (`EXIT_HUNGUP`, below), and a client that holds the connection with nothing to say
+for `--idle-timeout-s`
 (30 minutes by default; a policy call in progress is not idle) is taken to have gone. (A call
 stuck in native code that holds the GIL cannot be interrupted from Python; the process around the
 server is the last resort.)
@@ -31,12 +32,22 @@ units, and loading tens of gigabytes of weights once per unit would cost more th
 Each client drives its own episodes and says `close`; the next one starts with `hello` and gets the
 same policy, which `reset` starts over. Sessions never overlap.
 
-**Exit status.** The process exits as soon as the session ends, however it ends, without waiting
-for threads the policy started. 0 after `close`, when the client hangs up or when it was idle too
-long; 1 when the policy
-could not be built, a malformed message ended the session or anything else went wrong (such as a
-`KeyboardInterrupt`, which is not answered); 2 when serving never started (arguments, key or
-address).
+**Exit status.** The process exits as soon as the last session ends, however it ends, without
+waiting for threads the policy started.
+
+- 0, `EXIT_OK`: every session said `close`, hung up between calls or was idle too long.
+- 1, `EXIT_FAILED`: the policy could not be built, a malformed message ended the session, or
+  anything else went wrong (a `KeyboardInterrupt` included, which is not answered).
+- 2, `EXIT_USAGE`: serving never started (arguments, key or address).
+- 3, `EXIT_HUNGUP`: the client hung up **while a policy call was running**, so its answer is lost.
+
+3 is its own status because it is the one ending a supervisor must tell from a clean finish: the
+call may never return, the policy the server built is lost with the process, and the next unit needs
+a server started again. It is the status under any `--max-sessions`, the sessions left unserved.
+
+**No session leaks.** Each session's hang-up watch holds a duplicate of the connection's descriptor
+and a thread; both are released when the session ends, so a server kept for 1,490 units ends with
+the descriptors and threads it had after the first.
 """
 
 from __future__ import annotations
@@ -68,6 +79,10 @@ log = logging.getLogger("zerowam_protocol.serve")
 EXIT_OK = 0
 EXIT_FAILED = 1
 EXIT_USAGE = 2
+#: The client hung up while a policy call was running: its answer is lost, the call may never
+#: return, and the policy goes with the process. A supervisor tells this from a clean finish and
+#: starts a server again (C20).
+EXIT_HUNGUP = 3
 
 #: The longest exception message an error reply carries.
 MESSAGE_CHARS = 4000
@@ -143,7 +158,11 @@ class _HangupWatch:
     The session thread is inside competitor code during a call, so it cannot notice the client
     leave. This thread peeks at the connection, through a duplicate of its descriptor, without
     consuming anything: an end-of-file while a call is running means nobody is waiting for the
-    answer, and the server exits rather than outlive its client.
+    answer, and the server exits `EXIT_HUNGUP` rather than outlive its client.
+
+    One watch belongs to one session and is released with it: `close` stops the thread and closes
+    the duplicate. A server kept for many units would otherwise leak a descriptor and a thread per
+    client, and a full evaluation is 1,490 of them.
     """
 
     def __init__(self, conn: Any) -> None:
@@ -153,10 +172,12 @@ class _HangupWatch:
         # non-blocking, which would break the connection's own reads.
         os.set_blocking(fd, True)
         self._busy = threading.Event()
+        self._stopped = threading.Event()
         self._op = ""
-        threading.Thread(
+        self._thread = threading.Thread(
             target=self._run, name="zerowam-protocol-hangup-watch", daemon=True
-        ).start()
+        )
+        self._thread.start()
 
     @contextlib.contextmanager
     def __call__(self, op: str) -> Iterator[None]:
@@ -167,10 +188,23 @@ class _HangupWatch:
         finally:
             self._busy.clear()
 
+    def close(self) -> None:
+        """Stop watching and release the duplicate. Idempotent; the session calls it when it ends.
+
+        The thread is stopped before the descriptor is closed, so it never selects on a closed one,
+        and never mistakes a session that ended for a client that hung up mid-call.
+        """
+        self._stopped.set()
+        self._busy.set()  # wake the thread out of its wait; it re-reads _stopped at once
+        self._thread.join(timeout=WATCH_SLICE_S * 20)
+        with contextlib.suppress(OSError):
+            self._sock.close()
+
     def _run(self) -> None:
-        while True:
-            self._busy.wait()
-            while self._busy.is_set():
+        while not self._stopped.is_set():
+            if not self._busy.wait(WATCH_SLICE_S):
+                continue
+            while self._busy.is_set() and not self._stopped.is_set():
                 try:
                     ready, _, _ = select.select([self._sock], [], [], WATCH_SLICE_S)
                 except (OSError, ValueError):
@@ -185,12 +219,12 @@ class _HangupWatch:
                     data = b""
                 if data:
                     time.sleep(WATCH_SLICE_S)  # a message waits; it is read after this call
-                elif self._busy.is_set():
+                elif self._busy.is_set() and not self._stopped.is_set():
                     log.warning(
                         "the client hung up during %s; exiting without its answer", self._op
                     )
                     _flush()
-                    os._exit(EXIT_OK)
+                    os._exit(EXIT_HUNGUP)
 
 
 class Session:
@@ -239,6 +273,13 @@ class Session:
             return EXIT_OK
         except _SessionOver as over:
             return over.status
+
+    def close(self) -> None:
+        """Release what this session holds: its hang-up watch's thread and duplicated descriptor.
+
+        The policy is not closed: a server with `--max-sessions` keeps it for the next client.
+        """
+        self.watch.close()
 
     def _dispatch(self, op: str, fields: dict[str, Any], arrays: dict[str, np.ndarray]) -> None:
         handler = getattr(self, f"_op_{op}", None)
@@ -398,6 +439,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m zerowam_protocol.serve",
         description="Serve a policy to one client, then exit.",
+        epilog=(
+            "exit status:\n"
+            f"  {EXIT_OK}  every session ended cleanly: close, a hang-up between calls, or idle\n"
+            f"  {EXIT_FAILED}  the policy could not be built, or a malformed message or another "
+            "failure ended a session\n"
+            f"  {EXIT_USAGE}  serving never started: arguments, key or address\n"
+            f"  {EXIT_HUNGUP}  the client hung up while a policy call was running, under any "
+            "--max-sessions:\n"
+            "     its answer is lost and the policy goes with the process, so a supervisor starts "
+            "a server again\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--policy", required=True, metavar="MODULE:CLASS", help="the policy class")
     parser.add_argument(
@@ -528,6 +581,9 @@ def main(argv: list[str] | None = None) -> int:
             try:
                 status = session.run()
             finally:
+                # The session's own descriptors and thread go with it, however it ended: a server
+                # kept for a whole evaluation serves 1,490 clients from one process.
+                session.close()
                 _flush()
                 with contextlib.suppress(OSError):
                     conn.close()
