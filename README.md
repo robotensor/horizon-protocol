@@ -113,7 +113,8 @@ A policy is given a demonstration's video, `frames_<camera>`, and its `times`, a
 `states`) stay in `private/expert.npz`. The allow-list, `bundle.PUBLIC_PREFIXES` and
 `bundle.PUBLIC_NAMES`, is closed: `bundle.write` and `bundle.read` refuse any other array with
 `BundleSchemaError`, a `BundleError` that a benchmark maps to exit 2 (fix the writer), where any
-other `BundleError` is exit 4 (rebuild the unit).
+other `BundleError` is exit 4 (rebuild the unit). `RemotePolicy.set_demonstration` refuses them too,
+before a byte is sent, so arrays a benchmark assembles itself never reach a policy either.
 
 `write` and `read` hold a bundle to one schema: every `frames_<camera>` uint8 RGB `(T, H, W, 3)`
 with one T ≥ 2, `times` float64 `(T,)` and never decreasing, `camera` with exactly the fields
