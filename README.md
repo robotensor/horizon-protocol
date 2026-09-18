@@ -123,6 +123,12 @@ a hash that does not match, a missing file, a manifest or an npz that cannot be 
 JSON carries that no double can hold - is a `BundleError`, never an `OSError`, an `OverflowError`
 or numpy's own `ValueError`.
 
+A model family declares what it reads from a demonstration in its family file's `inputs` block,
+from one vocabulary that binds every family: `inputs.demonstration` holds `video` and may hold
+`caption` (`bundle.DEMONSTRATION_INPUTS`), and `inputs.prompt_language` is `none`, `generic` or
+`demonstration_caption` (`bundle.PROMPT_LANGUAGES`). `bundle.check_demonstration_inputs(inputs)`
+lists every problem, citing Q4; the competition's config check and each runtime's loader call it.
+
 Video is stored at the benchmark's native frame rate with `times` beside it. Nothing here resamples
 it: one bundle serves every model, and each runtime resamples for itself. `write` records what the
 times give in `demo.json`: `n_frames`, `duration_s` and `fps`, which is `null` when the times are

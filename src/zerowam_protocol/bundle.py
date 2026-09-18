@@ -53,6 +53,12 @@ scored in. A benchmark that records it writes it under `private/`.
 - `cameras` lists the demonstration cameras, the primary one (`camera.name`) first and the rest in
   ascending name order, and names exactly the `frames_` arrays (Q4, Q13).
 
+**What a model family may declare it reads (Q4, `docs/demonstrations.md` §9).** A family file's
+`inputs.demonstration` holds `video` (required) and may hold `caption`; `inputs.prompt_language`
+is one of `PROMPT_LANGUAGES`, and `demonstration_caption` needs `caption`. The vocabulary sits here,
+beside the allow-list, so that it binds every family whichever runtime ships it:
+`check_demonstration_inputs` is what the competition's config check and every family loader call.
+
 **Timing, derived from `times` (`frame_timing`).** `write` records `n_frames` (T), `duration_s`
 (`times[-1] - times[0]`) and `fps`: `(T - 1) / duration_s`, rounded to 6 decimals, when every
 interval between frames is within `UNIFORM_RTOL` of their mean (plus `UNIFORM_ULPS` ulps of the
@@ -91,12 +97,14 @@ __all__ = [
     "BundleError",
     "BundleSchemaError",
     "CAMERA_FIELDS",
+    "DEMONSTRATION_INPUTS",
     "DEMO_JSON",
     "DEMO_SOURCES",
     "EXPERT_NPZ",
     "FRAMES_NPZ",
     "PRIVATE_DIR",
     "PREVIEW_MP4",
+    "PROMPT_LANGUAGES",
     "PUBLIC_FILES",
     "PUBLIC_NAMES",
     "PUBLIC_PREFIXES",
@@ -105,6 +113,7 @@ __all__ = [
     "WRITTEN_KEYS",
     "UNIFORM_RTOL",
     "UNIFORM_ULPS",
+    "check_demonstration_inputs",
     "check_public_arrays",
     "digest",
     "frame_timing",
@@ -165,6 +174,14 @@ REQUIRED_KEYS = (
 #: given, by prefix or exact name. It is closed: anything else is refused at write, read and send.
 PUBLIC_PREFIXES = ("frames_",)
 PUBLIC_NAMES = ("times",)
+
+#: What a model family may declare it reads from a demonstration (Q4): `video` is
+#: `frames_<info.demo_cameras[0]>` and `times`, and every family reads it; `caption` is
+#: `info.demo_text`, which only a captioned HumanGen video carries. Nothing else exists to read.
+DEMONSTRATION_INPUTS = ("video", "caption")
+#: The text a family may condition on: none; `info.instruction`, the generic sentence; or
+#: `info.demo_text` when present, else `info.instruction`. No benchmark sends task language.
+PROMPT_LANGUAGES = ("none", "generic", "demonstration_caption")
 
 #: Who performed a demonstration: RoboTwin's scripted expert, a MimicGen trial, a HumanGen video.
 DEMO_SOURCES = ("expert", "mimicgen", "humangen")
@@ -362,6 +379,60 @@ def check_public_arrays(arrays: Mapping[str, Any]) -> None:
         problems = _times_problems(arrays["times"])
     if problems:
         raise BundleSchemaError(f"demonstration arrays: {'; '.join(problems)}")
+
+
+def check_demonstration_inputs(inputs: Mapping[str, Any]) -> list[str]:
+    """Every problem with a family file's `inputs` block (empty when it is valid), each citing Q4.
+
+    `inputs.demonstration` is a list that holds `video`, may hold `caption` and holds nothing else:
+    `proprio`, `actions` or any other word names something no benchmark sends, because the
+    demonstrator's state and actions never reach a policy. `inputs.prompt_language` is one of
+    `PROMPT_LANGUAGES` (never `task`: no benchmark sends task language), and
+    `demonstration_caption` needs `caption`. Other keys of the block (a family's `action_types`,
+    say) are not the demonstration's, and are left to the family.
+    """
+    if not isinstance(inputs, Mapping):
+        return [f"inputs is {inputs!r}, not a mapping with demonstration and prompt_language (Q4)"]
+    problems = []
+    declared = inputs.get("demonstration")
+    if "demonstration" not in inputs:
+        problems.append("inputs.demonstration is missing; it names video at least (Q4)")
+    elif not (
+        isinstance(declared, (list, tuple)) and all(isinstance(word, str) for word in declared)
+    ):
+        problems.append(f"inputs.demonstration is {declared!r}, not a list of input names (Q4)")
+        declared = None
+    else:
+        if "video" not in declared:
+            problems.append(
+                "inputs.demonstration lacks video: every family reads the demonstration's frames "
+                "and times (Q4)"
+            )
+        for word in dict.fromkeys(declared):
+            if word not in DEMONSTRATION_INPUTS:
+                problems.append(
+                    f"inputs.demonstration holds {word!r}, which no benchmark sends: a family "
+                    f"declares {' and '.join(DEMONSTRATION_INPUTS)} only, and the demonstrator's "
+                    "state and actions never reach a policy (Q4)"
+                )
+            if declared.count(word) > 1:
+                problems.append(f"inputs.demonstration lists {word!r} twice (Q4)")
+    language = inputs.get("prompt_language")
+    if "prompt_language" not in inputs:
+        problems.append(
+            f"inputs.prompt_language is missing; it is one of {', '.join(PROMPT_LANGUAGES)} (Q4)"
+        )
+    elif language not in PROMPT_LANGUAGES:
+        problems.append(
+            f"inputs.prompt_language is {language!r}, not one of {', '.join(PROMPT_LANGUAGES)}: "
+            "no benchmark sends task language (Q4)"
+        )
+    elif language == "demonstration_caption" and declared is not None and "caption" not in declared:
+        problems.append(
+            "inputs.prompt_language demonstration_caption reads info.demo_text, so "
+            "inputs.demonstration must declare caption (Q4)"
+        )
+    return problems
 
 
 def frame_timing(times: Any) -> dict[str, Any]:

@@ -15,7 +15,7 @@ This page is for someone who adds a benchmark (a fork that writes bundles) or a 
 | P1 | this repo | `BundleSchemaError` at write and read | landed: the allow-list, object dtypes, the frames and `times` rules, `camera` (Q13) and `cameras`; every read failure is a `BundleError` |
 | P2 | this repo | bundle version 2: every file hashed, `private/` included, and `demo.json`'s sha256 as the bundle's digest | landed: `bundle.write(..., expert=...)`, `private_files`, `bundle.digest(bundle_dir)` |
 | P13 | this repo | the check at send | pending |
-| P14 | this repo | the input vocabulary | pending |
+| P14 | this repo | the input vocabulary | landed: `bundle.DEMONSTRATION_INPUTS`, `bundle.PROMPT_LANGUAGES`, `bundle.check_demonstration_inputs` |
 | P10 | this repo | conformance | pending |
 | P11 | this repo | `info` keys | pending |
 | P4 | this repo | the optional `stub_policy` field in `result.json` | pending |

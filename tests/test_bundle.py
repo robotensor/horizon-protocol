@@ -888,3 +888,80 @@ def test_read_refuses_a_manifest_that_lost_a_key_write_fills_in(tmp_path):
     with pytest.raises(BundleError, match="lacks fps") as refused:
         bundle.read(tmp_path / "unit")
     assert type(refused.value) is BundleError
+
+
+# -- what a model family may declare it reads (P14: #17) -----------------------------------------
+
+
+def test_the_input_vocabulary_is_pinned():
+    assert bundle.DEMONSTRATION_INPUTS == ("video", "caption")
+    assert bundle.PROMPT_LANGUAGES == ("none", "generic", "demonstration_caption")
+
+
+@pytest.mark.parametrize(
+    "inputs",
+    [
+        {"demonstration": ["video", "caption"], "prompt_language": "demonstration_caption"},
+        {"demonstration": ["video"], "prompt_language": "generic"},
+        {"demonstration": ("video",), "prompt_language": "none"},
+        {"demonstration": ["caption", "video"], "prompt_language": "generic"},
+        {"action_types": ["ee"], "demonstration": ["video"], "prompt_language": "none"},
+    ],
+    ids=["zero-wam", "video and the generic sentence", "a tuple", "any order", "other keys"],
+)
+def test_a_family_that_declares_what_benchmarks_send_passes(inputs):
+    assert bundle.check_demonstration_inputs(inputs) == []
+
+
+REFUSED_INPUTS = {
+    "a missing video": (
+        {"demonstration": ["caption"], "prompt_language": "demonstration_caption"},
+        "lacks video",
+    ),
+    "proprio": (
+        {"demonstration": ["video", "proprio"], "prompt_language": "generic"},
+        "holds 'proprio', which no benchmark sends",
+    ),
+    "actions": (
+        {"demonstration": ["video", "actions"], "prompt_language": "generic"},
+        "holds 'actions', which no benchmark sends",
+    ),
+    "task language": (
+        {"demonstration": ["video"], "prompt_language": "task"},
+        "prompt_language is 'task'",
+    ),
+    "demonstration_caption without caption": (
+        {"demonstration": ["video"], "prompt_language": "demonstration_caption"},
+        "must declare caption",
+    ),
+    "no demonstration": ({"prompt_language": "none"}, "inputs.demonstration is missing"),
+    "a word, not a list": (
+        {"demonstration": "video", "prompt_language": "none"},
+        "not a list of input names",
+    ),
+    "a word twice": (
+        {"demonstration": ["video", "video"], "prompt_language": "none"},
+        "lists 'video' twice",
+    ),
+    "no prompt language": ({"demonstration": ["video"]}, "prompt_language is missing"),
+    "not a mapping": (["video"], "not a mapping"),
+}
+
+
+@pytest.mark.parametrize("case", sorted(REFUSED_INPUTS))
+def test_a_family_that_declares_anything_else_is_refused_citing_q4(case):
+    inputs, words = REFUSED_INPUTS[case]
+
+    problems = bundle.check_demonstration_inputs(inputs)
+
+    assert problems
+    assert any(words in problem for problem in problems), problems
+    assert all("(Q4)" in problem for problem in problems)
+
+
+def test_every_problem_is_listed():
+    problems = bundle.check_demonstration_inputs(
+        {"demonstration": ["proprio", "actions"], "prompt_language": "task"}
+    )
+
+    assert len(problems) == 4  # no video, proprio, actions, task
