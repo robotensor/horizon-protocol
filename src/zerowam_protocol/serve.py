@@ -46,7 +46,9 @@ server is the last resort.)
 no limit), keeping the policy it already built: a competition evaluates a submission over many
 units, and loading tens of gigabytes of weights once per unit would cost more than the units do.
 Each client drives its own episodes and says `close`; the next one starts with `hello` and gets the
-same policy, which `reset` starts over. Sessions never overlap.
+same policy, which `reset` starts over. Sessions never overlap. A policy's `close` is therefore the
+end of a session and not of the policy: it releases what that client's session held and keeps what
+it cost to build (`policy.Policy`).
 
 **Exit status.** The process exits as soon as the last session ends, however it ends, without
 waiting for threads the policy started.
