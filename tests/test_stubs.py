@@ -142,6 +142,7 @@ def test_replay_policy_serves_its_cadence_over_the_socket(tmp_path):
         "zerowam_protocol.stubs:ReplayPolicy",
         f"expert={path}",
         "observe_every=4",
+        honors_observe_every=True,  # the selftest's harness records what the chunk produced
     )
     try:
         greeting = served.policy.hello()

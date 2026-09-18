@@ -34,7 +34,7 @@ def test_hello_then_an_episode(zero_policy):
 
     assert greeting["action_type"] == "ee"
     assert greeting["policy"] == "zerowam_protocol.stubs:ZeroPolicy"
-    assert greeting["protocol"] == 2
+    assert greeting["protocol"] == 3
     assert greeting["observe_every"] == 0  # a policy that does not declare it is sent one frame
     assert zero_policy.policy.observe_every == 0
     assert action.shape == (16,)
@@ -183,7 +183,7 @@ def test_parse_policy_and_build_policy():
 
 def test_a_policy_that_observes_its_chunk_is_sent_the_stack(tmp_path):
     """The benchmark records every N actions and sends the frames with the next act."""
-    served = serve(tmp_path, "policies_for_tests:ObservingPolicy")
+    served = serve(tmp_path, "policies_for_tests:ObservingPolicy", honors_observe_every=True)
     try:
         greeting = served.policy.hello()
         served.policy.set_demonstration(*demonstration())
@@ -248,7 +248,9 @@ def test_a_client_refuses_a_hello_without_a_usable_observe_every(tmp_path, reply
 
 def test_every_client_of_a_kept_policy_hears_its_observe_every(tmp_path):
     """--max-sessions keeps the policy; the second client must still be told to send frames."""
-    served = serve(tmp_path, "policies_for_tests:ObservingPolicy", max_sessions=2)
+    served = serve(
+        tmp_path, "policies_for_tests:ObservingPolicy", max_sessions=2, honors_observe_every=True
+    )
     try:
         first = served.policy.hello()
         served.policy.close()

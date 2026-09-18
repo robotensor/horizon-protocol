@@ -73,6 +73,20 @@ adopts one version set once. What a consumer must change:
     `rollout.mp4` is read through a symlink: a run directory holds its own result and its own
     video.
 - **Protocol 3.**
+  - `PROTOCOL_VERSION` is 3 and both ends refuse 2 at `hello`: a fork, a runtime and the
+    competition move together.
+  - A client's `hello` says `protocol`, the `action_types` the benchmark executes and whether it
+    `honors_observe_every`. `RemotePolicy` takes the two as arguments, defaulting to `("ee",)` and
+    `False`, so a fork that records the observations a chunk produced passes
+    `honors_observe_every=True` or is refused by an observing policy; a fork whose action types do
+    not include the policy's is refused too. A refused client ends its own session: the server
+    keeps its policy and serves the next one.
+  - The reply to `hello` may carry `served` (`policy.SERVED_KEYS`: `family_sha256`,
+    `family_version`, `knobs`, `weights_fingerprint`, `weights_sha256`), which a policy exposes as
+    an attribute; `RemotePolicy.served` keeps it and a fork passes it to `result.write`, which
+    refuses any other key. Its values are plain JSON: a knob that resolved to a numpy scalar or a
+    path is refused at `hello` with an error reply (exit 1), naming the key, and `knobs` itself is
+    a mapping, because a benchmark reads a knob by name.
   - A fork sends Q14's `info` keys with every demonstration: `embodiment`, `action_spec` (Q3),
     `cameras` (the observation cameras, `{name, role, w, h}` each), `demo_cameras` (the
     demonstration's channels, exactly the `frames_` arrays sent), `step_limit` and `instruction`,
@@ -146,6 +160,18 @@ adopts one version set once. What a consumer must change:
 
 ### Added
 
+- Protocol 3: the `hello` exchange records what was served and what the client supports. The reply
+  may carry `served` - the family's sha and version, the resolved knobs, the weights' fingerprint
+  and sha (`policy.SERVED_KEYS`, which a policy exposes as an attribute) - so `result.json` says
+  what produced it, an operator's `--knobs` included; `result.write` and `result.read` hold the
+  field to those keys. The client's `hello` says which protocol it speaks, which action types the
+  benchmark executes and whether it honours a policy's `observe_every`, and the server refuses a
+  client that cannot drive its policy rather than answering one that would run blind: an
+  `observe_every=4` policy sent an unstacked observation returned an (8, 16) chunk with no error.
+  Both ends refuse protocol 2. A refused client ends only its own session, so a kept server goes on
+  to the next one, and a client that connects and leaves without a `hello` no longer stops the
+  server either; a refused session ends with exit 1 and counts against `--max-sessions`, which the
+  exit-status table now says. (#8)
 - `zerowam_protocol.info`: the keys a demonstration's `info` carries (decision Q14), as
   `REQUIRED_KEYS` (`embodiment`, `action_spec`, `cameras`, `demo_cameras`, `step_limit`,
   `instruction`), the optional `demo_text`, `INSTRUCTION` and `check_info(info, arrays)`. `info`

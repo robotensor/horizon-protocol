@@ -203,9 +203,9 @@ class Served:
     address: str = ""
     authkey: bytes = b""
     timeout_s: float = 60.0
-    budgets: dict | None = None
+    client_args: dict | None = None
 
-    def connect(self, **budgets) -> RemotePolicy:
+    def connect(self, **client_args) -> RemotePolicy:
         """Another client for the same server, as the next unit of an epoch would be.
 
         Sessions never overlap: close the one in hand before asking for this, or it waits in the
@@ -216,7 +216,7 @@ class Served:
             self.authkey,
             timeout_s=self.timeout_s,
             log_file=self.log,
-            **{**(self.budgets or {}), **budgets},
+            **{**(self.client_args or {}), **client_args},
         )
 
     def close(self) -> None:
@@ -234,11 +234,12 @@ def serve(
     *policy_args: str,
     timeout_s: float = 60.0,
     max_sessions: int = 1,
-    **budgets: float,
+    **client_args,
 ) -> Served:
     """Serve `module:Class` on a Unix socket under `tmp_path` and connect to it.
 
-    `budgets` are the client's per-call timeouts (`prompt_timeout_s`, `act_timeout_s`).
+    `client_args` are the client's own: its per-call timeouts (`prompt_timeout_s`,
+    `act_timeout_s`) and what its `hello` declares (`action_types`, `honors_observe_every`).
     """
     tmp_path.mkdir(parents=True, exist_ok=True)
     address = str(tmp_path / "policy.sock")
@@ -273,10 +274,10 @@ def serve(
         if process.poll() is not None:
             raise AssertionError(f"the server exited with {process.returncode}")
         time.sleep(0.02)
-    client = RemotePolicy(address, authkey, timeout_s=timeout_s, log_file=log, **budgets)
+    client = RemotePolicy(address, authkey, timeout_s=timeout_s, log_file=log, **client_args)
     served = Served(process, client, log)
     served.address = address
     served.authkey = authkey
     served.timeout_s = timeout_s
-    served.budgets = dict(budgets)
+    served.client_args = dict(client_args)
     return served

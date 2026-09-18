@@ -32,7 +32,7 @@ the first unit. The exit status says how the last session ended:
 | Status | Meaning |
 |---|---|
 | 0 | every session ended cleanly: `close`, a hang-up between calls, or idle too long |
-| 1 | the policy could not be built, or a malformed message or another failure ended a session |
+| 1 | the policy could not be built, a client it cannot be driven by was refused (counting against `--max-sessions` like any other session), or a malformed message or another failure ended a session |
 | 2 | serving never started: arguments, key or address |
 | 3 | the client hung up **while a policy call was running**, under any `--max-sessions` |
 
@@ -51,9 +51,11 @@ with RemotePolicy(
     timeout_s=60.0,  # connect, authenticate, hello, reset, close
     prompt_timeout_s=600.0,  # set_demonstration: the first one loads the weights
     act_timeout_s=30.0,  # one act
+    action_types=("ee",),  # the action types this benchmark executes
+    honors_observe_every=True,  # it records the observations a chunk produced
     log_file="policy.log",
 ) as policy:
-    policy.hello()  # protocol, action_type, observe_every, policy
+    policy.hello()  # protocol, action_type, observe_every, policy, served
     policy.set_demonstration(demo_arrays, info)  # one demonstration, named arrays
     policy.reset(seed)
     action = policy.act(observation)["action"]  # (A,) or a chunk (H, A)
@@ -63,6 +65,21 @@ A policy that must see what its own chunk did declares `observe_every = N`. The 
 records an observation after every N-th action and sends them, stacked, with the next `act`
 (`zerowam_protocol.observe.stack`); the first `act` of an episode carries the initial observation
 alone. A chunk whose length is not a multiple of N is refused (`observe.check_chunk`).
+
+`PROTOCOL_VERSION` is 3, and both ends refuse anything else at `hello`. The client's greeting says
+which action types this benchmark executes and whether it records those observations; a server
+whose policy the client cannot drive — another action type, or a cadence the benchmark ignores —
+refuses that client with an error and serves the next one, rather than answering a policy that
+would run blind. Both declarations default to the cautious answer (`("ee",)`, `False`), so a
+benchmark says what it does deliberately.
+
+The reply may carry `served`, what the server says this process serves —
+`zerowam_protocol.policy.SERVED_KEYS`: `family_sha256`, `family_version`, `knobs`,
+`weights_fingerprint`, `weights_sha256` — which a policy exposes as an attribute of its own. It is
+kept as `policy.served`, and the benchmark records it in `result.json` unchanged, so every result
+says what produced it, an operator's resolved knobs included. Its values are plain JSON: a knob
+that resolved to a numpy scalar is refused at `hello` with an error reply (exit 1), not left to
+the encoder, and `knobs` itself must be a mapping, because a benchmark reads a knob by name.
 
 The three timeouts are separate because the three calls cost different things: a runtime loads its
 weights inside the first `set_demonstration`, so an act budget of 30 s would fail it, and giving

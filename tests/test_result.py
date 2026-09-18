@@ -396,7 +396,13 @@ def test_an_unknown_stub_is_refused(tmp_path):
 
 
 def test_what_was_served_is_recorded_unchanged(tmp_path):
-    served = {"family": "zerowam", "knobs": {"steps": 4}, "weights_sha256": "c" * 64}
+    served = {
+        "family_sha256": "d" * 64,
+        "family_version": "2026.09.1",
+        "knobs": {"steps": 4},
+        "weights_fingerprint": "e" * 64,
+        "weights_sha256": "c" * 64,
+    }
 
     record = result.write(tmp_path, **result_fields(served=served))
 
@@ -408,6 +414,17 @@ def test_what_was_served_is_recorded_unchanged(tmp_path):
 def test_served_is_a_mapping_of_plain_json(tmp_path, served):
     with pytest.raises(ValueError, match="served|JSON"):
         result.write(tmp_path, **result_fields(served=served))
+
+
+def test_served_holds_the_keys_the_hello_reply_carries(tmp_path):
+    """A result records what it was told, and only what protocol 3 defines (SERVED_KEYS)."""
+    with pytest.raises(ValueError, match="served carries checkpoint, family"):
+        result.write(tmp_path, **result_fields(served={"family": "zerowam", "checkpoint": "x"}))
+
+    result.write(tmp_path, **result_fields(served={"knobs": {"steps": 4}}))  # a subset is fine
+    _rewrite(tmp_path, served={"knobs": {"steps": 4}, "family": "zerowam"})
+    with pytest.raises(ValueError, match="served carries family"):
+        result.read(tmp_path)
 
 
 # -- reading --------------------------------------------------------------------------------------

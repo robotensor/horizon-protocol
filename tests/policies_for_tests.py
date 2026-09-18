@@ -110,3 +110,63 @@ class SlowPolicy:
     def act(self, observation):
         time.sleep(self.act_s)
         return {"action": np.zeros(16)}
+
+
+class ServingPolicy:
+    """Says what it serves, as a runtime does: the family, the resolved knobs, the weights."""
+
+    action_type = "ee"
+    served = {
+        "family_sha256": "a" * 64,
+        "family_version": "2026.09.1",
+        "knobs": {"steps": 4, "guidance": 1.5},
+        "weights_fingerprint": "b" * 64,
+        "weights_sha256": "c" * 64,
+    }
+
+    def reset(self, seed: int) -> None:
+        pass
+
+    def set_demonstration(self, arrays, info) -> None:
+        pass
+
+    def act(self, observation):
+        return {"action": np.zeros(16)}
+
+
+class NumpyServingPolicy:
+    """Resolves a knob to a numpy scalar, which is every SERVED_KEY but nothing the wire carries."""
+
+    action_type = "ee"
+    served = {
+        "family_sha256": "a" * 64,
+        "family_version": "2026.09.1",
+        "knobs": {"steps": np.int64(4)},
+        "weights_fingerprint": "b" * 64,
+        "weights_sha256": "c" * 64,
+    }
+
+    def reset(self, seed: int) -> None:
+        pass
+
+    def set_demonstration(self, arrays, info) -> None:
+        pass
+
+    def act(self, observation):
+        return {"action": np.zeros(16)}
+
+
+class MisServingPolicy:
+    """Says it serves something protocol 3 does not define, so nothing may record it."""
+
+    action_type = "ee"
+    served = {"family": "zerowam", "checkpoint": "/models/mine"}
+
+    def reset(self, seed: int) -> None:
+        pass
+
+    def set_demonstration(self, arrays, info) -> None:
+        pass
+
+    def act(self, observation):
+        return {"action": np.zeros(16)}

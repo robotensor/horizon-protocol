@@ -28,8 +28,9 @@ implementers follow.
   `arm_slices` and `same_rotation`. `demo.json`'s `action_spec`, required and checked with
   `check_action_spec` by `bundle.write` and `bundle.read`, with `BUNDLE_VERSION` 2 (P2). The `info`
   schema, `zerowam_protocol.info` (P11): `REQUIRED_KEYS` and `check_info`, run by
-  `RemotePolicy.set_demonstration` before it sends and by the server on every `prompt`, with
-  `PROTOCOL_VERSION` 3 (P6).
+  `RemotePolicy.set_demonstration` before it sends and by the server on every `prompt`.
+  `PROTOCOL_VERSION` is 3 (P6): `hello` declares each end's protocol, the action types the
+  benchmark executes and whether it honours `observe_every`, and its reply may carry `served`.
 - **Pending in this package:** `zerowam_protocol.conformance`, the helpers the forks' checks use, is
   P10.
 - **Pending elsewhere:** the forks' side is RT5, RT10, RT11 (RoboTwin) and RC4, RC5, RC9
