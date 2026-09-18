@@ -33,10 +33,17 @@ weights only and the runtime is ours.
 
 ## Rules
 
+- **The conventions are `docs/conventions.md` (decision Q3) and what a policy receives is
+  `docs/demonstrations.md` (decision Q4).** Code here, in the forks and in every runtime follows them;
+  a change to either is a new decision in `robotensor/zerowam-competition` `docs/decisions.md`, then
+  a contract change here.
 - The wire carries named arrays and JSON fields only. Never pickle; object dtypes are refused at
   both ends. Both halves of the socket run beside foreign pins, so the only dependency is numpy.
 - Nothing here knows a channel name. `frames_head`, `qpos`, `actions` are the benchmark's words;
-  this package neither defines nor validates them.
+  this package neither defines nor validates them. What it does own (Q3, Q4): the convention every
+  number follows, the `action_spec` vocabulary a benchmark declares its state channel in, the public
+  allow-list of a bundle (`frames_*`, `times`) and the demonstration-input vocabulary a family
+  declares from.
 - No privileged data crosses the socket. A bundle's `private/` is never read by the code that talks
   to a policy; `bundle.public_arrays` is the only thing given to one.
 - A demonstration is stored at the benchmark's native frame rate, with `times` beside it. Never

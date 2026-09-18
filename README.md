@@ -44,6 +44,20 @@ alone. A chunk whose length is not a multiple of N is refused (`observe.check_ch
 Every way the policy can fail — an error reply, a timeout, a hang-up, a malformed message — raises
 `PolicyUnavailable`, and the benchmark decides what it costs the unit.
 
+## Conventions and demonstrations
+
+Two pages are the contract every benchmark and every model family implements; read them before
+adding either:
+
+- [`docs/conventions.md`](docs/conventions.md) — what every action and observation number means
+  (metres, quaternion `wxyz`, gripper 0 closed … 1 open, 8 per arm), what a benchmark declares in
+  `info.action_spec`, and what a model runtime maps for itself (decision Q3).
+- [`docs/demonstrations.md`](docs/demonstrations.md) — what a policy receives from a demonstration
+  (video frames, `times`, and a HumanGen video's caption) and what stays under `private/` (the
+  demonstrator's state and actions) (decision Q4).
+
+Both decisions are recorded in `robotensor/zerowam-competition` `docs/decisions.md`.
+
 ## The demonstration bundle
 
 One directory per unit, written once per epoch and handed unchanged to every submission:
