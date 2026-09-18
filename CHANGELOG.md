@@ -194,6 +194,12 @@ adopts one version set once. What a consumer must change:
   refuses a demonstration or observation that leaves it nothing to echo, and its `width` argument is
   gone. `ReplayPolicy` takes `--policy-arg observe_every=N`, declares it at `hello` and answers with
   chunks of N actions, which `observe.check_chunk` accepts, so a fork's selftest covers N > 0. (#10)
+  That hold is now measured rather than asserted, in both simulators and on two units each: the arm
+  stays within 0.42 mm of its first pose over RoboTwin `click_bell`'s 400 actions and within 1.2 mm
+  over robocasa `OpenDrawer`'s 750, the gripper within 0.014 of the opening it was shown, and every
+  unit ends `failure`. `stubs` says what is left - a creep of about a micrometre per action, the
+  echo following the arm's own settling - so a harness knows what to expect of its smoke epoch.
+  (#15)
 - `RemotePolicy` takes a timeout per kind of call: `timeout_s` still covers connecting,
   authenticating, `hello`, `reset` and `close`, `prompt_timeout_s` covers `set_demonstration` and
   `act_timeout_s` covers one `act`; both default to `timeout_s`, and each call is bounded by its own

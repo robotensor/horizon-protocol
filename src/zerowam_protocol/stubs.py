@@ -15,6 +15,15 @@ channel, sent straight back. `ZeroPolicy` echoes the array `info.action_spec.sta
 and refuses a demonstration or an observation that leaves it nothing to echo, rather than quietly
 commanding a pose no one asked for.
 
+**What that does in a simulator.** Served as the smoke epoch serves it, it holds the arm where it
+found it and the unit ends `failure`: over RoboTwin `click_bell`'s 400 actions both arms stayed
+within 0.42 mm of the pose they started in, and over robocasa `OpenDrawer`'s 750 the arm stayed
+within 1.2 mm and its gripper within 0.014 of the opening it was shown. Echoing is not a latch,
+though: every action targets the pose the arm has already settled to, so what is left is a creep of
+about a micrometre per action on RoboTwin, where a control that repeated its first observation
+instead held to 0.004 mm. A hold this close is a floor to score against, not a pose to trust to
+0.1 mm.
+
 `ReplayPolicy` is a test instrument, not a competitor: it is given a privileged file on purpose,
 by the harness that already holds it. Nothing in the competition serves it to score a submission.
 
