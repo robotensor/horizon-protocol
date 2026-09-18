@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 from protocol_testing import demonstration, observation, serve, write_bundle
 
-from zerowam_protocol import PolicyUnavailable, bundle, observe, wire
+from zerowam_protocol import PolicyUnavailable, bundle, conventions, observe, wire
 from zerowam_protocol.client import RemotePolicy
 from zerowam_protocol.serve import build_policy, parse_policy
 
@@ -37,7 +37,7 @@ def test_hello_then_an_episode(zero_policy):
     assert greeting["observe_every"] == 0  # a policy that does not declare it is sent one frame
     assert zero_policy.policy.observe_every == 0
     assert action.shape == (16,)
-    assert not action.any()
+    assert np.allclose(action, observation()["endpose"])  # holding still: the state, echoed back
 
 
 def test_the_demonstration_from_a_bundle_reaches_the_policy(tmp_path):
@@ -66,8 +66,10 @@ def test_replay_stub_returns_the_expert_actions(tmp_path):
     finally:
         served.close()
 
-    assert np.allclose(first, record["actions"][0])
-    assert np.allclose(second, record["actions"][1])
+    assert np.allclose(first, record["ee_actions"][0])
+    assert np.allclose(second, record["ee_actions"][1])
+    # What it played is an action of the space the bundle declares, not the benchmark's native row.
+    conventions.check_chunk(first, info["action_spec"])
 
 
 def test_a_policy_error_is_an_error_reply_and_the_server_keeps_serving(tmp_path):
@@ -136,8 +138,8 @@ def test_a_server_that_has_served_its_clients_stops_listening(tmp_path):
 
 def test_parse_policy_and_build_policy():
     assert parse_policy("pkg.mod:Class") == ("pkg.mod", "Class")
-    policy = build_policy("zerowam_protocol.stubs:ZeroPolicy", {"width": "7"})
-    assert policy.act({})["action"].shape == (7,)
+    policy = build_policy("zerowam_protocol.stubs:ZeroPolicy", {"state_channel": "qpos"})
+    assert policy.act({"qpos": np.zeros(7)})["action"].shape == (7,)
 
 
 def test_a_policy_that_observes_its_chunk_is_sent_the_stack(tmp_path):
