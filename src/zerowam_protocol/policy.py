@@ -57,16 +57,22 @@ ACTION_TYPES = ("qpos", "ee")
 
 @runtime_checkable
 class Policy(Protocol):
-    """A policy the server can serve.
+    """A policy the server can serve: `action_type` and the three methods, and nothing else.
 
-    `close(self) -> None` and `observe_every` are optional and not part of the check.
+    Two members are optional, so neither is declared here: a `runtime_checkable` Protocol checks
+    every member it declares, and declaring an optional one would reject the policies that leave it
+    out - `zerowam_protocol.stubs`' own included.
+
+    - `observe_every: int` - record an observation every N actions of a chunk and send them with
+      the next `act` (`zerowam_protocol.observe`). 0, or absent, is one observation per `act`. The
+      server reads it with `getattr` and repeats it at `hello`.
+    - `close(self) -> None` - called when the client says `close`.
+
+    A policy that sets either still passes `isinstance`.
     """
 
     #: `"qpos"` or `"ee"`, sent to the client in the reply to `hello`.
     action_type: str
-    #: Optional: record an observation every N actions of a chunk and send them with the next
-    #: `act` (`zerowam_protocol.observe`). 0, or absent, is one observation per `act`.
-    observe_every: int
 
     def reset(self, seed: int) -> None: ...
 

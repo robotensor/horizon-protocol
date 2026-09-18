@@ -91,6 +91,7 @@ def demonstration(steps: int = 6, cameras=("head", "left_wrist")):
         "action_type": "ee",
         "action_dim": 16,
         "control_hz": 250.0 / 15.0,
+        "action_spec": aloha_spec(),
     }
     return arrays, info
 

@@ -96,10 +96,11 @@ Each item is a trap that was found in this code base. The rule that prevents it 
    **Rule:** `gripper_command` is `"position"`: the fork converts to a position target (§8).
 7. **Echoing the state holds still; a zero action does not.**
    Actions are absolute targets, so an all-zero action asks an arm to reach the frame origin with a
-   zero (invalid) quaternion [inference]. The stub "hold still" policy sends exactly that today
-   (zerowam-protocol src/zerowam_protocol/stubs.py:27-47) [code].
+   zero (invalid) quaternion [inference]. The stub "hold still" policy sent exactly that until P8.
    **Rule:** sending the observed state channel back as the action MUST hold the robot still,
-   gripper included (C-F1). A "do nothing" policy echoes the state.
+   gripper included (C-F1). A "do nothing" policy echoes the state: `stubs.ZeroPolicy` echoes the
+   array `info.action_spec.state_channel` names, and refuses a demonstration that declares none
+   rather than command a pose of zeros.
 8. **`qpos` is benchmark-native and outside the convention.**
    RoboTwin's `qpos` is 6 joint drive targets plus a normalised gripper per arm
    (RoboTwin/robot.py:494-506); RoboCasa's is the 7 arm joints without the gripper

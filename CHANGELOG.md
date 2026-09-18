@@ -72,6 +72,16 @@ adopts one version set once. What a consumer must change:
     missing or extra, or a changed `rollout.mp4` is refused. Neither `result.json` nor
     `rollout.mp4` is read through a symlink: a run directory holds its own result and its own
     video.
+- **Smoke policies.**
+  - A harness that serves `ZeroPolicy` sends `info.action_spec` (Q3), whose `state_channel` names
+    the array it echoes to hold still, or names the channel itself with
+    `--policy-arg state_channel=NAME`; `--policy-arg width=N` is gone.
+  - A selftest that serves `ReplayPolicy` at a chunked cadence passes
+    `--policy-arg observe_every=N`.
+  - `ReplayPolicy` plays `private/expert.npz`'s `ee_actions`, the array Q4 §7 requires and the one
+    in the Q3 space its `action_type` declares, where it played `actions` (the benchmark's native
+    row, another width on RoboTwin) before. A harness that means to replay another array passes
+    `--policy-arg key=NAME`.
 
 ### Changed
 
@@ -115,6 +125,15 @@ adopts one version set once. What a consumer must change:
 
 ### Added
 
+- The smoke policies fit the `Policy` protocol and their own docs. `isinstance(ZeroPolicy(),
+  Policy)` was False, because a `runtime_checkable` Protocol checks every member it declares and
+  `observe_every` was declared although it is optional; it is documented instead, so a policy passes
+  with or without it. `ZeroPolicy` now holds still by echoing the state channel
+  `info.action_spec.state_channel` names (Q3) rather than sending zeros, which under `ee` command
+  the frame origin with an invalid quaternion; it takes `--policy-arg state_channel=NAME` and
+  refuses a demonstration or observation that leaves it nothing to echo, and its `width` argument is
+  gone. `ReplayPolicy` takes `--policy-arg observe_every=N`, declares it at `hello` and answers with
+  chunks of N actions, which `observe.check_chunk` accepts, so a fork's selftest covers N > 0. (#10)
 - `RemotePolicy` takes a timeout per kind of call: `timeout_s` still covers connecting,
   authenticating, `hello`, `reset` and `close`, `prompt_timeout_s` covers `set_demonstration` and
   `act_timeout_s` covers one `act`; both default to `timeout_s`, and each call is bounded by its own

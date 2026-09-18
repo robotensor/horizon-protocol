@@ -191,9 +191,20 @@ server said it served.
 ## Smoke policies
 
 `zerowam_protocol.stubs` holds two policies that need no model: `ZeroPolicy`, which holds still, and
-`ReplayPolicy`, which plays an expert trajectory and must succeed. They are how a benchmark's whole
+`ReplayPolicy`, which plays a bundle's `private/expert.npz` `ee_actions` — the demonstration in
+the Q3 convention — and must succeed. They are how a benchmark's whole
 chain — demonstration, hashing, scene restore, socket, result — is tested in minutes on a laptop
 GPU.
+
+An action is an absolute target, so holding still is not an action of zeros: `ZeroPolicy` echoes the
+observed state channel, the array `info.action_spec.state_channel` names, and refuses a
+demonstration or an observation that leaves it nothing to echo (`--policy-arg state_channel=NAME`
+names it where the info does not). `ReplayPolicy` takes `--policy-arg observe_every=N`, declares it
+at `hello` and answers with chunks of N actions, so a selftest covers the chunked cadence too; it
+plays `ee_actions` unless `--policy-arg key=NAME` names another array of the same npz.
+
+Both are `Policy`: the protocol declares `action_type`, `reset`, `set_demonstration` and `act`, and
+nothing else, so `observe_every` and `close` stay optional for `isinstance`.
 
 ## Development
 
