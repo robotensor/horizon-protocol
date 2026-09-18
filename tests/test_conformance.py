@@ -153,6 +153,48 @@ def test_hold_still_refuses_a_position_that_is_not_a_number():
         conformance.hold_still(ALOHA, position=(float("nan"), 0.0, 0.0))
 
 
+def test_hold_still_refuses_a_position_that_is_not_three_numbers():
+    """Named as the caller's mistake, rather than as a row C-P2 says is the wrong width."""
+    with pytest.raises(ConformanceError, match="the 3 numbers of an arm's block"):
+        conformance.hold_still(ALOHA, position=(0.0, 0.0))
+
+
+@pytest.mark.parametrize(
+    ("spec", "says"),
+    [
+        pytest.param(
+            dict(ALOHA, layout=["qw", "qx", "qy", "qz", "x", "y", "z", "gripper"]),
+            "layout",
+            id="rotated layout",
+        ),
+        pytest.param(dict(ALOHA, gripper_command="velocity"), "gripper_command", id="velocity"),
+        pytest.param(dict(ALOHA, action_type="qpos"), "action_type", id="qpos"),
+        pytest.param(dict(ALOHA, frame=""), "frame", id="no frame"),
+    ],
+)
+def test_hold_still_refuses_a_space_that_is_not_the_convention(spec, says):
+    """C-P1 first, because C-P2 and C-P3 read numbers and cannot see what the space declared.
+
+    Each of these builds a row of 16 finite numbers with a unit quaternion and an open gripper per
+    arm, so C-P2 and C-P3 pass it: without C-P1 `hold_still` would hand back a row for a rotated
+    layout, a velocity gripper, an action type nothing executes or a frame that names nothing - and
+    every check that sends one would be driving a policy on a space no fork may declare.
+    """
+    with pytest.raises(ConformanceError, match=says):
+        conformance.hold_still(spec)
+
+
+def test_hold_still_refuses_a_state_channel_that_is_a_camera_s_frames():
+    """C-P3 reads every `frames_*` key, so a state channel spelled as one is refused as one.
+
+    Nothing in C-P1 or Q14 stops a fork declaring `state_channel: "frames_head"` beside a camera
+    named `head`; `observation` would then hand the policy that camera's frames where its state
+    belongs and no state channel at all. This is where it is caught.
+    """
+    with pytest.raises(ConformanceError, match="cannot be sent"):
+        conformance.hold_still(dict(ALOHA, state_channel="frames_head"))
+
+
 def test_the_observation_goes_out_read_only():
     """What `_drive` sends is the server's arrays: a policy that writes over one is caught."""
     _, info = conformance.demonstration(ALOHA, cameras=("head",))
@@ -223,6 +265,64 @@ def test_check_policy_builds_through_build_policy(monkeypatch):
     monkeypatch.setattr(serve, "build_policy", lambda *a, **k: seen.append(a) or original(*a, **k))
     conformance.check_policy("zerowam_protocol.stubs:ZeroPolicy", spec=ALOHA)
     assert seen == [("zerowam_protocol.stubs:ZeroPolicy", None)]
+
+
+def test_check_policy_resets_the_policy_with_the_seed_it_was_given():
+    """Both stubs reset to nothing, so only a policy that records it says the check called it.
+
+    `reset(seed)` is the call a benchmark makes before every episode and the one every model on a
+    unit is given; a check that skipped it would drive a policy that was never started, and
+    `repeat` - which stands on resetting twice from the one seed - would compare two halves of one
+    continuous run.
+    """
+    policies_for_tests.SEEDS.clear()
+    conformance.check_policy("policies_for_tests:ResettingPolicy", spec=ALOHA, seed=7)
+    assert policies_for_tests.SEEDS == [7]
+
+
+def test_check_policy_resets_again_from_the_same_seed_for_a_repeat():
+    policies_for_tests.SEEDS.clear()
+    conformance.check_policy("policies_for_tests:ResettingPolicy", spec=ALOHA, seed=7, repeat=True)
+    assert policies_for_tests.SEEDS == [7, 7]
+
+
+def test_check_policy_refuses_a_policy_that_cannot_reset():
+    """A runtime that raises on `reset` runs no unit; served that is `PolicyUnavailable`."""
+    with pytest.raises(ConformanceError, match="reset raised RuntimeError"):
+        conformance.check_policy("policies_for_tests:RaisingResetPolicy", spec=ALOHA)
+
+
+def test_check_policy_sends_a_different_observation_every_call():
+    """`calls` observations are `calls` different ones, not one observation sent `calls` times.
+
+    A policy driven with the same frames every call is a policy driven once: what it answered to
+    the first observation it would answer to all of them, and `repeat` would compare two runs of
+    one frame. `ChunkPolicy` records shapes, which do not change with the pixels, so this one
+    records the pixels.
+    """
+    policies_for_tests.SEEN_FRAMES.clear()
+    conformance.check_policy("policies_for_tests:FrameRecordingPolicy", spec=ALOHA, calls=3)
+    assert len(policies_for_tests.SEEN_FRAMES) == 3
+    assert len(set(policies_for_tests.SEEN_FRAMES)) == 3
+
+
+def test_check_policy_names_an_answer_that_is_not_a_mapping():
+    """`serve.checked_action`'s `TypeError` is a refusal a selftest catching one class must see."""
+    with pytest.raises(ConformanceError, match="act raised TypeError"):
+        conformance.check_policy("policies_for_tests:NotAMappingPolicy", spec=ALOHA)
+
+
+def test_check_policy_refuses_a_space_that_is_not_the_convention():
+    """C-P1 on the declared space, as `ConformanceError`, before a policy is built.
+
+    Without it the spec reaches `info.check_info`, which runs the same C-P1 three layers later and
+    raises `BundleSchemaError` - the exception a fork maps to exit 2, "the writer's own bug" -
+    for a runtime's caller passing a space its fork declared.
+    """
+    with pytest.raises(ConformanceError, match="gripper_command"):
+        conformance.check_policy(
+            "zerowam_protocol.stubs:ZeroPolicy", spec=dict(ALOHA, gripper_command="velocity")
+        )
 
 
 def test_check_policy_refuses_a_policy_for_another_space():
@@ -437,6 +537,71 @@ def test_check_served_catches_a_policy_that_ignores_its_seed(tmp_path, monkeypat
         )
 
 
+@pytest.fixture
+def served_from_here(monkeypatch):
+    """The stubs that misbehave on purpose live beside this file, so the server must see them."""
+    monkeypatch.setenv("PYTHONPATH", str(Path(__file__).resolve().parent), prepend=os.pathsep)
+
+
+def test_check_served_resets_the_policy_with_the_seed_it_was_given(served_from_here, tmp_path):
+    """What `check_policy`'s reset tests pin, over the socket: `reset(seed)`, before each run.
+
+    The policy runs in the server's process, where no test can read a seed it recorded, so it
+    refuses instead - a reset from any seed but 7, and an act with no reset before it. Seed 7 is
+    not 0, so a check that reset from a constant would be refused too.
+    """
+    report = conformance.check_served(
+        "policies_for_tests:SeedPolicy",
+        policy_args={"seed": "7"},
+        spec=ALOHA,
+        seed=7,
+        repeat=True,
+        timeout_s=20.0,
+        log_file=tmp_path / "policy.log",
+    )
+    assert report["actions"] == [(16,), (16,)]
+
+
+def test_check_served_is_refused_by_a_policy_given_another_seed(served_from_here, tmp_path):
+    """The other half of the test above: `SeedPolicy` does refuse a seed that is not its own."""
+    with pytest.raises(PolicyUnavailable, match="reset from seed 8"):
+        conformance.check_served(
+            "policies_for_tests:SeedPolicy",
+            policy_args={"seed": "7"},
+            spec=ALOHA,
+            seed=8,
+            timeout_s=20.0,
+            log_file=tmp_path / "policy.log",
+        )
+
+
+def test_check_served_refuses_a_policy_that_cannot_reset(served_from_here, tmp_path):
+    """A runtime that raises on `reset` runs no unit, served or not."""
+    with pytest.raises(PolicyUnavailable, match="reset: RuntimeError"):
+        conformance.check_served(
+            "policies_for_tests:RaisingResetPolicy",
+            spec=ALOHA,
+            timeout_s=20.0,
+            log_file=tmp_path / "policy.log",
+        )
+
+
+def test_check_served_refuses_a_chunk_that_ends_between_observations(served_from_here, tmp_path):
+    """`observe_every=4` answering chunks of 3, over the socket: the cadence the client read.
+
+    The server does not refuse this chunk and the client does not either, so the check is what
+    holds a served policy to the cadence it declared, as `check_policy` holds one in process.
+    """
+    with pytest.raises(ConformanceError, match="observes every 4 would end between observations"):
+        conformance.check_served(
+            "policies_for_tests:ChunkPolicy",
+            policy_args={"observe_every": "4", "chunk": "3", "width": "16"},
+            spec=ALOHA,
+            timeout_s=20.0,
+            log_file=tmp_path / "policy.log",
+        )
+
+
 def test_check_served_reports_a_policy_that_cannot_be_built(tmp_path):
     """The server builds the policy at `hello`, so the client's own failure is what is raised."""
     with pytest.raises(PolicyUnavailable, match="FileNotFoundError"):
@@ -490,6 +655,80 @@ def test_check_served_reports_a_server_that_died_before_it_listened(tmp_path):
             executable=str(stub),
             timeout_s=20.0,
         )
+
+
+def _demo_with_an_array_that_may_not_be_sent():
+    """A demonstration carrying the demonstrator's state, which is privileged (Q4)."""
+    arrays, info = conformance.demonstration(ALOHA)
+    return {**arrays, "endpose": np.zeros((4, 16))}, info
+
+
+def _demo_without_its_instruction():
+    """A demonstration whose `info` is missing a key Q14 requires."""
+    arrays, info = conformance.demonstration(ALOHA)
+    return arrays, {key: value for key, value in info.items() if key != "instruction"}
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "refusal", "says"),
+    [
+        pytest.param(
+            {"spec": dict(ALOHA, gripper_command="velocity")},
+            ConformanceError,
+            "gripper_command",
+            id="the space (C-P1)",
+        ),
+        pytest.param(
+            {"demo": _demo_with_an_array_that_may_not_be_sent()},
+            BundleSchemaError,
+            "endpose",
+            id="the arrays (Q4)",
+        ),
+        pytest.param(
+            {"demo": _demo_without_its_instruction()},
+            BundleSchemaError,
+            "instruction",
+            id="the info (Q14)",
+        ),
+    ],
+)
+def test_check_served_refuses_what_it_would_send_before_it_starts_a_server(
+    monkeypatch, kwargs, refusal, says
+):
+    """The three checks `check_policy` runs, run here too, and before the process is spawned.
+
+    Each is the caller's own mistake, not the served policy's: without them a fork waits out a
+    server start to be told, and two of the three arrive as something else entirely - a space that
+    is not Q3's as `check_info`'s `BundleSchemaError`, arrays that may not be sent as the client's
+    refusal a handshake later. `Popen` is made to fail so that starting one at all is the failure.
+    """
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("check_served started a server for something it would not send")
+
+    monkeypatch.setattr(conformance.subprocess, "Popen", refuse)
+    with pytest.raises(refusal, match=says):
+        conformance.check_served("zerowam_protocol.stubs:ZeroPolicy", **kwargs)
+
+
+def test_a_served_check_kills_a_server_that_outlives_its_client():
+    """What pins `check_served`'s "a policy that leaves the process wedged fails here".
+
+    A policy can leave the server alive after the session ends - a non-daemon thread, a child
+    process holding the descriptor - and then `process.wait()` never returns. Without this the
+    check would block for the whole timeout and report the exit status of a process it had not
+    waited for, or hang. It is `_stop`'s own test, as `_check_repeatable`'s two are, because the
+    wedge has to be built out of a process rather than out of a policy.
+    """
+    process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    try:
+        with pytest.raises(ConformanceError, match="did not exit after the client closed"):
+            conformance._stop(process, 0.5)
+        assert process.poll() is not None, "a server that outlives its client is killed"
+    finally:
+        if process.poll() is None:  # pragma: no cover - only if the refusal above did not fire
+            process.kill()
+            process.wait(timeout=10)
 
 
 # -- check_bundle ---------------------------------------------------------------------------------
@@ -618,6 +857,23 @@ def test_check_result_refuses_a_result_that_names_another_run(tmp_path, field, w
         conformance.check_result(out, bundle_dir=tmp_path / "unit")
 
 
+def test_check_result_refuses_a_bundle_dir_that_is_not_bundle_v2(tmp_path):
+    """The bundle a result is tied back to is read as a bundle, not as any `demo.json`.
+
+    The manifest here is bundle v1 and every field the result names still matches it, digest
+    included, so only reading it as bundle v2 refuses it.
+    """
+    helpers.write_bundle(tmp_path / "unit")
+    manifest_path = tmp_path / "unit" / bundle.DEMO_JSON
+    manifest = json.loads(manifest_path.read_text())
+    manifest_path.write_text(json.dumps({**manifest, "bundle_version": 1}))
+    out = tmp_path / "run"
+    out.mkdir()
+    result.write(out, **helpers.result_fields(demo_sha256=bundle.digest(tmp_path / "unit")))
+    with pytest.raises(BundleSchemaError, match="bundle version 1"):
+        conformance.check_result(out, bundle_dir=tmp_path / "unit")
+
+
 def test_check_result_without_a_bundle_is_result_read(tmp_path):
     out = tmp_path / "run"
     out.mkdir()
@@ -690,6 +946,49 @@ def test_a_check_names_the_argument_its_caller_got_wrong(call, says):
     assert says in str(refusal.value)
 
 
+@pytest.mark.parametrize(
+    ("call", "expected"),
+    [
+        pytest.param(
+            lambda: conformance.demonstration(ALOHA, steps=np.int64(3))[0]["times"].shape,
+            (3,),
+            id="steps",
+        ),
+        pytest.param(
+            lambda: conformance.observation(ALOHA, frames=np.int64(3))["endpose"].shape,
+            (3, 16),
+            id="frames",
+        ),
+        pytest.param(
+            lambda: len(conformance.check_policy(ZERO, spec=ALOHA, calls=np.int64(3))["actions"]),
+            3,
+            id="calls",
+        ),
+    ],
+)
+def test_a_count_may_be_a_numpy_integer(call, expected):
+    """A count is read as `observe.checked_every` reads a cadence: a numpy integer is one.
+
+    A fork that takes a step count off an array passes `np.int64`, which is a count and not a
+    caller's mistake to be told it is too few.
+    """
+    assert call() == expected
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        pytest.param(lambda: conformance.demonstration(ALOHA, steps=2.5), id="steps"),
+        pytest.param(lambda: conformance.observation(ALOHA, frames=2.0), id="frames"),
+        pytest.param(lambda: conformance.check_policy(ZERO, spec=ALOHA, calls=True), id="calls"),
+    ],
+)
+def test_a_count_that_is_not_an_integer_is_named_as_that(call):
+    """A float or a bool is refused as what it is, not as a count that is too small."""
+    with pytest.raises(ConformanceError, match="not an integer"):
+        call()
+
+
 def test_a_repeat_check_refuses_two_runs_that_answered_different_keys():
     """Named, with both key sets: the value comparison alone would raise a bare KeyError."""
     with pytest.raises(ConformanceError, match="the second time"):
@@ -710,3 +1009,35 @@ def test_a_repeat_check_refuses_two_runs_that_answered_a_different_number_of_tim
     answers = [{"action": np.zeros(16)}]
     with pytest.raises(ValueError, match="shorter"):
         conformance._check_repeatable(ZERO, 0, answers, [])
+
+
+def test_a_repeat_check_reads_two_of_the_same_nan_as_the_same_answer():
+    """C-P2 reads the `action` alone, so what a policy sends beside it may legitimately be NaN.
+
+    A value head that answers NaN on both runs answered the unit the same way twice, which is what
+    `repeat` asks; refusing it would send a runtime hunting a seed it does follow. A NaN against a
+    number is still a difference.
+    """
+    row = np.zeros(16)
+    twice = [{"action": row, "value": np.array([np.nan, 1.0])}]
+    assert conformance._check_repeatable(ZERO, 0, twice, [dict(twice[0])]) is None
+    with pytest.raises(ConformanceError, match="'value' differs"):
+        conformance._check_repeatable(
+            ZERO, 0, twice, [{"action": row, "value": np.array([0.0, 1.0])}]
+        )
+
+
+def test_a_repeat_check_compares_an_answer_that_is_not_floating_point():
+    """Every array of an answer is compared, not the floating-point ones alone.
+
+    A policy that reports a step count, a token or a mask beside its action answers integers, and
+    two runs that disagree about one disagree. `equal_nan` is asked for whatever the dtype, which
+    `np.array_equal` takes for every dtype `wire.DTYPES` allows - bool, the integers, the floats
+    and complex - so nothing here has to choose by dtype.
+    """
+    once = [{"action": np.zeros(16), "step": np.array([1, 2], dtype=np.int64)}]
+    assert conformance._check_repeatable(ZERO, 0, once, [dict(once[0])]) is None
+    with pytest.raises(ConformanceError, match="'step' differs"):
+        conformance._check_repeatable(
+            ZERO, 0, once, [{"action": np.zeros(16), "step": np.array([1, 3], dtype=np.int64)}]
+        )
