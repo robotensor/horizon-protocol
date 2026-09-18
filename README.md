@@ -83,7 +83,7 @@ One directory per unit, written once per epoch and handed unchanged to every sub
 
 ```
 <unit_id>/
-  demo.json            manifest, with a sha256 per file; never sent to a policy
+  demo.json            manifest, with a sha256 of every other file; never sent to a policy
   demo.mp4             preview, for people
   demo_frames.npz      native-rate frames and times, nothing else: what the policy is given
   private/             scene restore data, the demonstrator's state and actions — never sent
@@ -92,9 +92,21 @@ One directory per unit, written once per epoch and handed unchanged to every sub
 ```python
 from zerowam_protocol import bundle
 
-manifest, arrays = bundle.read("pool/rts-click_bell-000")  # hashes checked
+# A benchmark writes one; whatever else goes under private/ (a scene) is there before this call.
+bundle.write(unit_dir, manifest=manifest, arrays=demo_arrays, private=scene, expert=record)
+
+manifest, arrays = bundle.read("pool/rts-click_bell-000")  # every file checked
 policy.set_demonstration(bundle.public_arrays(arrays), info)
+demo_sha256 = bundle.digest("pool/rts-click_bell-000")  # the whole bundle's digest
 ```
+
+`demo.json` hashes every other file, `private/` included, so its own sha256,
+`bundle.digest(bundle_dir)`, pins the whole unit, the scene it is evaluated in included.
+`bundle.read` holds the directory to `demo.json` exactly: a file missing, changed, added after
+`write` or symlinked is a `BundleError` - `demo.json` itself included, which no hash of its own
+would catch. A manifest carries the unit's `unit_id` and the
+`action_spec` its private pose arrays follow (decision Q3, checked with
+`conventions.check_action_spec`); `BUNDLE_VERSION` is 2, and `read` refuses any other.
 
 A policy is given a demonstration's video, `frames_<camera>`, and its `times`, and nothing else
 (decision Q4): the demonstrator's state and actions (`qpos`, `endpose`, `actions`, `ee_actions`,

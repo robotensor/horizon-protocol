@@ -51,8 +51,9 @@ weights only and the runtime is ours.
   privileged (Q4). `bundle.public_arrays` (`frames_*`, `times`) is the only thing given to one.
 - A demonstration is stored at the benchmark's native frame rate, with `times` beside it. Never
   resample here: a bundle serves every model, and each runtime resamples for itself.
-- One bundle is one unit and is immutable once written. `demo.json` hashes its files; `read`
-  verifies them by default.
+- One bundle is one unit and is immutable once written. `demo.json` hashes every other file,
+  `private/` included, and its own sha256 is the bundle's digest (`bundle.digest(bundle_dir)`);
+  `read` holds the directory to it exactly by default.
 - Every evaluated unit writes a `result.json`, however it ended. A missing file is a harness
   failure, never a score.
 - `ReplayPolicy` is a test instrument and is given a privileged file by the harness that already

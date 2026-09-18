@@ -117,6 +117,7 @@ def observation(dims: int = 16, cameras=("head", "left_wrist")):
 
 def manifest(**overrides):
     record = {
+        "unit_id": "robotwin_sim/click_bell-000",
         "axis": "robotwin_sim",
         "benchmark": "robotwin",
         "fork_commit": "0" * 40,
@@ -131,6 +132,7 @@ def manifest(**overrides):
             "pose": [0.0, -0.3, 1.2, 0.5, -0.5, 0.5, -0.5],
         },
         "cameras": ["head", "left_wrist"],
+        "action_spec": aloha_spec(),
         "task_config": "sim_clean",
         "task_config_sha256": "1" * 64,
         "scene_seed": 918273,
@@ -152,8 +154,8 @@ def write_bundle(out_dir: Path, *, steps: int = 6, **overrides):
         manifest=manifest(**overrides),
         arrays=arrays,
         private={"task": "click_bell", "scene_seed": 918273},
+        expert=record_arrays,
     )
-    np.savez(Path(out_dir) / bundle.PRIVATE_DIR / "expert.npz", **record_arrays)
     return record, arrays, info, record_arrays
 
 
