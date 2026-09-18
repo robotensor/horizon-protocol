@@ -732,3 +732,159 @@ def test_the_demonstrators_record_is_never_pickled(tmp_path):
             expert={"states": np.array([{"a": 1}], dtype=object)},
         )
     assert not (tmp_path / "unit").exists()
+
+
+# -- timing derived from the frame times (P3: #5) -------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "times, expected",
+    [
+        (np.arange(121) / 24, {"n_frames": 121, "duration_s": 5.0, "fps": 24.0}),
+        (3.0 + np.arange(41) / 20, {"n_frames": 41, "duration_s": 2.0, "fps": 20.0}),
+        (np.arange(77) * (15 / 250), {"n_frames": 77, "duration_s": 76 * 0.06, "fps": 16.666667}),
+    ],
+    ids=["humangen 24 fps", "robocasa 20 Hz, late start", "robotwin every 15 steps"],
+)
+def test_uniform_times_give_a_frame_rate(times, expected):
+    timing = bundle.frame_timing(times)
+
+    assert timing["n_frames"] == expected["n_frames"]
+    assert timing["duration_s"] == pytest.approx(expected["duration_s"], abs=1e-12)
+    assert timing["fps"] == expected["fps"]
+
+
+def test_every_native_rate_reads_back_exactly():
+    """(T - 1) / duration is off in the last bit about one time in fifteen: fps is rounded."""
+    for hz in (20.0, 24.0, 30.0, 50.0):
+        for count in range(2, 300):
+            assert bundle.frame_timing(np.arange(count) / hz)["fps"] == hz
+
+
+@pytest.mark.parametrize(
+    "times",
+    [
+        np.array([0.0, 0.05, 0.13, 0.2]),
+        np.arange(10) / 20 + np.r_[0, 1e-3, np.zeros(8)],
+        np.zeros(4),
+        np.array([2.5]),
+    ],
+    ids=["uneven", "one late frame", "no time passes", "a single frame"],
+)
+def test_other_times_give_no_frame_rate(times):
+    timing = bundle.frame_timing(times)
+
+    assert timing["fps"] is None
+    assert timing["n_frames"] == len(times)
+    assert timing["duration_s"] == float(times[-1] - times[0])
+
+
+@pytest.mark.parametrize("origin", [0.0, 1e3, 1.7e9], ids=["zero", "uptime", "epoch"])
+@pytest.mark.parametrize("hz", [24.0, 30.0, 50.0])
+def test_uniform_times_keep_their_rate_from_any_origin(origin, hz):
+    """`times` need not start at zero (Q4): at a wall-clock origin one ulp of a time is already a
+    larger share of a 1/30 s interval than UNIFORM_RTOL is, and the rate must survive it.
+
+    The recorded value still carries the float grid the times were rounded onto (30.000002 from
+    the epoch), which is why a benchmark records simulator-relative times where it can.
+    """
+    times = origin + np.arange(9) / hz
+
+    assert bundle.frame_timing(times)["fps"] == pytest.approx(hz, rel=1e-5)
+
+
+def test_a_bundle_timed_from_a_wall_clock_records_a_rate(tmp_path):
+    arrays, _ = demonstration()
+    arrays["times"] = 1.7e9 + np.arange(len(arrays["times"])) / 30.0
+
+    record = bundle.write(tmp_path / "unit", manifest=manifest(), arrays=arrays)
+
+    assert record["fps"] == pytest.approx(30.0, rel=1e-5)
+    assert bundle.read(tmp_path / "unit")[0]["fps"] == record["fps"]
+
+
+def test_jitter_below_the_tolerance_is_still_uniform():
+    times = np.arange(50) / 20
+    times[1:-1] += times[1] * bundle.UNIFORM_RTOL * 0.1
+
+    assert bundle.frame_timing(times)["fps"] == 20.0
+
+
+def test_a_single_frame_is_timed_but_never_a_bundle(tmp_path):
+    assert bundle.frame_timing([7.0]) == {"n_frames": 1, "duration_s": 0.0, "fps": None}
+    arrays = {"frames_head": np.zeros((1, 8, 10, 3), np.uint8), "times": np.array([7.0])}
+
+    with pytest.raises(BundleSchemaError, match="T >= 2"):
+        bundle.write(tmp_path / "unit", manifest=manifest(cameras=["head"]), arrays=arrays)
+
+
+@pytest.mark.parametrize("times", [np.zeros(0), np.array([0.0, np.nan]), np.zeros((2, 2))])
+def test_times_that_are_no_times_give_no_timing(times):
+    with pytest.raises(BundleSchemaError, match="no timing"):
+        bundle.frame_timing(times)
+
+
+@pytest.mark.parametrize(
+    "times",
+    [
+        ["a", "b"],
+        np.array([{"t": 0}, {"t": 1}], dtype=object),
+        [0.0, TOO_BIG_FOR_A_DOUBLE],
+    ],
+    ids=["text", "an object array", "an int no double can hold"],
+)
+def test_times_that_are_not_real_numbers_are_a_bundle_error_too(times):
+    """The public helper's own contract: numpy's TypeError is no BundleError (Q4)."""
+    with pytest.raises(BundleSchemaError, match="not real numbers") as refused:
+        bundle.frame_timing(times)
+    assert isinstance(refused.value, BundleError)
+    assert not isinstance(refused.value, (TypeError, ArithmeticError))
+
+
+def test_write_records_the_timing_its_times_give(tmp_path):
+    record, arrays, _, _ = write_bundle(tmp_path / "unit")
+    timing = bundle.frame_timing(arrays["times"])
+
+    assert {key: record[key] for key in timing} == timing
+    assert timing["fps"] is None  # the test demonstration's rate is uneven on purpose
+    read_manifest, _ = bundle.read(tmp_path / "unit")
+    assert {key: read_manifest[key] for key in timing} == timing
+
+
+def test_uniform_times_are_recorded_with_their_rate(tmp_path):
+    arrays, _ = demonstration()
+    arrays["times"] = 1.5 + np.arange(6) / 20
+
+    record = bundle.write(tmp_path / "unit", manifest=manifest(), arrays=arrays)
+
+    assert (record["n_frames"], record["duration_s"], record["fps"]) == (6, 0.25, 20.0)
+    assert bundle.read(tmp_path / "unit")[0]["fps"] == 20.0
+
+
+@pytest.mark.parametrize("key", ["n_frames", "duration_s", "fps"])
+def test_the_timing_comes_from_the_arrays_never_the_caller(tmp_path, key):
+    arrays, _ = demonstration()
+
+    with pytest.raises(BundleSchemaError, match=f"passes {key}"):
+        bundle.write(tmp_path / "unit", manifest=manifest(**{key: 20}), arrays=arrays)
+
+
+@pytest.mark.parametrize(
+    "key, value", [("n_frames", 5), ("duration_s", 1.0), ("fps", 20.0), ("n_frames", 6.0)]
+)
+def test_read_refuses_timing_that_disagrees_with_the_times(tmp_path, key, value):
+    write_bundle(tmp_path / "unit")
+    _edit_manifest(tmp_path / "unit", lambda r: r.update({key: value}))
+
+    with pytest.raises(BundleError, match=f"{key} is {value!r}, but its times give") as refused:
+        bundle.read(tmp_path / "unit")
+    assert type(refused.value) is BundleError
+
+
+def test_read_refuses_a_manifest_that_lost_a_key_write_fills_in(tmp_path):
+    write_bundle(tmp_path / "unit")
+    _edit_manifest(tmp_path / "unit", lambda r: r.pop("fps"))
+
+    with pytest.raises(BundleError, match="lacks fps") as refused:
+        bundle.read(tmp_path / "unit")
+    assert type(refused.value) is BundleError

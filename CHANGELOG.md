@@ -44,6 +44,11 @@ adopts one version set once. What a consumer must change:
     `files["demo_frames.npz"]`.
   - `bundle_version` is held to its type as well as its value: a manifest carrying `2.0` is
     refused, like `"2"`.
+  - `demo.json` carries `n_frames`, `duration_s` and `fps`, filled in by `bundle.write` from
+    `times`; a manifest that passes one is refused. `fps` is recorded when the intervals are
+    uniform within `bundle.UNIFORM_RTOL` of their mean plus `bundle.UNIFORM_ULPS` ulps of the
+    times, so a demonstration timed from a wall clock keeps a rate (with that grid's error in it:
+    record times relative to the episode where you can).
 
 ### Changed
 
@@ -73,6 +78,11 @@ adopts one version set once. What a consumer must change:
 
 ### Added
 
+- `bundle.write` records `n_frames`, `duration_s` and `fps` in `demo.json`, derived from `times`
+  alone by `bundle.frame_timing`: `fps` is `(T - 1) / duration_s`, rounded to 6 decimals, when every
+  interval is within `UNIFORM_RTOL` of the mean, and `null` when the times are uneven, a single
+  frame or span no time. Plan §4.4 lists them and no fork wrote them; `read` refuses values that
+  disagree with the times. (#5)
 - `zerowam_protocol.conventions`: decision Q3's convention as code. Constants for what every number
   means (`PER_ARM_LAYOUT` `[x, y, z, qw, qx, qy, qz, gripper]`, metres, scalar-first quaternions,
   gripper 0 closed … 1 open, left then right, a single arm declared `right`) and the vocabulary a
