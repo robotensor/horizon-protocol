@@ -20,9 +20,11 @@ so it runs beside a simulator's pins on one side and a model's pins on the other
   policy that declares `observe_every`, `observe.check_chunk`. No socket: the failure points at the
   policy, which is closed however the check ends - what it declares being refused included, whether
   the refusal is this check's or the builder's, because a policy built in this process outlives the
-  check where a served one goes with its server. With
+  check where a served one goes with its server. It is reset from `seed` and driven with `calls`
+  **different** observations, so a policy is sent a sequence and not one frame `calls` times. With
   `repeat=True` the same seed is driven twice and the answers must match, each one copied as it is
-  taken so that a policy answering from a buffer it reuses is caught here too.
+  taken so that a policy answering from a buffer it reuses is caught here too; two NaNs in the same
+  place are the same answer.
 - `check_served("module:Class", spec=...)` - the same policy through
   `python -m zerowam_protocol.serve` and `RemotePolicy`, in two processes, and the server exits 0.
 - `check_bundle(bundle_dir)` - a directory against bundle v2, and the one thing reading it does not
@@ -113,6 +115,13 @@ def hold_still(
         )
     row = np.asarray(block * len(spec["arms"]), dtype=np.float64)
     try:
+        # C-P2 as an action and C-P3 as the state channel, because the row is handed back as both.
+        # For this row C-P3 is the stricter of the two: the quaternion is always exactly
+        # [1, 0, 0, 0], so C-P2's norm floor cannot fire where C-P3's unit-norm test does not, and
+        # the width and the non-finite value C-P2 refuses are refusals of C-P3's as well - C-P2
+        # changes no verdict here today. It stays because the row is returned as an action, so a
+        # caller reading `hold_still` sees the layer that governs that use, and because either
+        # check moving leaves the row still held to the other.
         conventions.check_chunk(row, spec)
         conventions.check_observation({str(spec["state_channel"]): row}, spec)
     except ValueError as exc:
@@ -138,8 +147,7 @@ def demonstration(
     `(T, h, w, 3)` and `times` float64 `(T,)`. `cameras` names the demonstration's channels, each a
     name or a whole `{name, role, w, h}` entry; `size` is `(h, w)` for the ones given by name.
     """
-    if not isinstance(steps, int) or steps < 2:
-        raise ConformanceError(f"steps is {steps!r}; a demonstration holds at least 2 frames (Q4)")
+    steps = _count("steps", steps, 2, "a demonstration holds at least 2 frames (Q4)")
     declared = [_camera(camera, index, size) for index, camera in enumerate(cameras)]
     if not declared:
         raise ConformanceError("cameras is empty; a demonstration holds at least one channel (Q4)")
@@ -177,8 +185,8 @@ def observation(
     sent, or K for the stack one that declares a cadence is sent between chunks: every array then
     has a leading axis of K, oldest first (`observe`).
     """
-    if frames is not None and (not isinstance(frames, int) or frames < 1):
-        raise ConformanceError(f"frames is {frames!r}; a stack holds at least one observation")
+    if frames is not None:
+        frames = _count("frames", frames, 1, "a stack holds at least one observation")
     row = hold_still(spec)
     state = row if frames is None else np.repeat(row[None, :], frames, axis=0)
     arrays: dict[str, np.ndarray] = {str(spec["state_channel"]): state}
@@ -232,14 +240,24 @@ def check_policy(
     its chunk produced and its chunk length is held to `observe.check_chunk`. Returns what the
     policy declared and the shape of every answer.
 
-    `seed` is what `reset` is given. Nothing about it is checked unless `repeat` is true, which
-    resets with the same seed and drives the same observations again and requires the same answers:
-    every model evaluated on a unit is given that one seed, so a policy that draws from the global
-    RNG scores a different run from its neighbours. It is off by default because reproducibility on
-    a given accelerator is the runtime's own pin, not this contract's.
+    The `calls` observations are `calls` **different** observations: each call's frames are drawn
+    from that call's own seed, so a policy is driven with a sequence rather than with one frame
+    sent `calls` times, and a policy that answers whatever it was first shown is driven past it.
+
+    `seed` is what `reset` is given, and every check drives `reset` before the first observation: a
+    policy that cannot reset is refused here rather than on the first real unit. Nothing about the
+    seed itself is checked unless `repeat` is true, which resets with the same seed and drives the
+    same sequence of observations again and requires the same answers: every model evaluated on a
+    unit is given that one seed, so a policy that draws from the global RNG scores a different run
+    from its neighbours. It is off by default because reproducibility on a given accelerator is the
+    runtime's own pin, not this contract's.
     """
     arrays, record = _demonstration(spec, demo)
     declared = record["action_spec"]
+    # The three things a check would send, each refused before a policy is built: the declared
+    # space (C-P1, as this module's one exception type), the demonstration arrays (the Q4
+    # allow-list) and the `info` beside them (Q14). `check_served` runs the same three, before it
+    # starts a server, so a fork gets the same refusal from whichever check it called.
     check_action_spec(declared)
     bundle.check_public_arrays(arrays)
     info_schema.check_info(record, arrays)
@@ -256,8 +274,10 @@ def check_policy(
                 f"{policy} declares action_type {action_type!r}, the space it is served on "
                 f"{declared['action_type']!r}: a benchmark cannot execute its actions (Q3)"
             )
-        # The cadence as an int. `build_policy` refused a policy whose `observe_every` is not one,
-        # and closed it, so this reads what it already held to `observe.checked_every`.
+        # Not a second check. `serve.build_policy` held this same attribute, on this same
+        # instance, to `observe.checked_every` and closed the policy when it failed, so nothing
+        # that reaches here can be refused by it: this reads the value back as an int (a numpy
+        # integer included) by the rule that already passed, for `_drive` and for the report.
         every = observe.checked_every(getattr(built, "observe_every", 0))
         try:
             served = checked_served(getattr(built, "served", None))
@@ -317,12 +337,15 @@ def check_served(
     honours `observe_every`, so a policy that declares a cadence is served rather than refused, and
     it executes the one action type the space declares, so a policy that acts in another is refused
     at the handshake, by the server, with `PolicyUnavailable` - as a benchmark would refuse it. The
-    session ends with `close`, and the server must exit 0: a policy that leaves the process wedged,
-    or one that takes it down, fails here. Returns what `hello` replied and the shape of every
-    answer.
+    session ends with `close`, and the server must exit 0: a policy that leaves the process wedged
+    is killed and refused (`_stop`), and one that takes the process down is refused for the status
+    it left. Returns what `hello` replied and the shape of every answer.
     """
     arrays, record = _demonstration(spec, demo)
     declared = record["action_spec"]
+    # The same three `check_policy` runs, and before a server is started rather than after: what a
+    # fork got wrong about the space (C-P1), the arrays (Q4) or the `info` (Q14) is its own, not
+    # the served policy's, and costs it no process to hear about.
     check_action_spec(declared)
     bundle.check_public_arrays(arrays)
     info_schema.check_info(record, arrays)
@@ -422,7 +445,9 @@ def check_result(out_dir: str | Path, *, bundle_dir: str | Path | None = None) -
     it is `void`, the four timing keys and no others, and a `rollout.mp4` whose sha256 is the one
     recorded. With `bundle_dir`, this adds what neither file can check alone - the result names
     that bundle's `unit_id`, its digest as `demo_sha256`, and the task configuration and fork
-    commit the bundle was built with - so a result cannot be filed against the wrong unit.
+    commit the bundle was built with - so a result cannot be filed against the wrong unit. The
+    bundle is read as bundle v2 (`bundle.read`, its schema without its files' hashes), so a
+    directory that is not one is refused with `BundleSchemaError` rather than tied back to.
     Returns the result. Every refusal is a `ValueError`; the ones this adds are
     `ConformanceError`.
     """
@@ -456,19 +481,28 @@ def _drive(
     every: int,
     calls: int,
 ) -> list[dict[str, Any]]:
-    """Answer `calls` observations, checking each answer, and return the answers themselves."""
-    if not isinstance(calls, int) or calls < 1:
-        raise ConformanceError(f"calls is {calls!r}; a policy is driven at least once")
+    """Answer `calls` observations, checking each answer, and return the answers themselves.
+
+    The observations are `calls` different ones: each call's frames are drawn from that call's own
+    seed, so driving a policy twice is not sending it the same observation twice, and `repeat`
+    compares two runs of one sequence rather than two runs of one frame.
+    """
+    calls = _count("calls", calls, 1, "a policy is driven at least once")
     answers: list[dict[str, Any]] = []
     # A policy that declared a cadence is sent a stack from its first act on, of one observation
     # (`observe`); one that declared none is sent the current observation alone.
     frames = 1 if every else None
     for call in range(calls):
+        # No C-P3 over `sent`: it is this module's own, not the consumer's. `observation` holds its
+        # state channel to C-P2 and C-P3 through `hold_still` - which is also what refuses a
+        # `state_channel` that collides with a camera's `frames_<name>`, the one way the two halves
+        # could disagree - and builds each frame from the same `cameras` entry C-P3 would compare
+        # it against, so C-P3 here would check this module against itself and pass whatever it did.
         sent = observation(spec, cameras, frames=frames, seed=call)
-        conventions.check_observation(sent, spec, cameras)
+        # `act` is `serve.checked_action` in process and `RemotePolicy.act` served, and each
+        # already refuses an answer that is not a mapping carrying an `action` of (A,) or (H, A):
+        # a guard for it here could not fire, so the answer is read straight.
         answer = act(sent)
-        if not isinstance(answer, Mapping) or "action" not in answer:
-            raise ConformanceError(f"act() answered {answer!r}, not a mapping holding an 'action'")
         action = np.asarray(answer["action"])
         try:
             conventions.check_chunk(action, spec)
@@ -489,6 +523,19 @@ def _drive(
     return answers
 
 
+def _count(name: str, value: Any, least: int, why: str) -> int:
+    """`value` as a count of at least `least`, read by the rule `observe.checked_every` reads by.
+
+    An `int` or a numpy integer is a count - a fork that takes its step count off an array passes
+    `np.int64` - and a bool or a float is not, which is said as that rather than as too few.
+    """
+    if isinstance(value, (bool, np.bool_)) or not isinstance(value, (int, np.integer)):
+        raise ConformanceError(f"{name} is {value!r}, not an integer; {why}")
+    if value < least:
+        raise ConformanceError(f"{name} is {value!r}; {why}")
+    return int(value)
+
+
 def _shapes(answers: Sequence[Mapping[str, Any]]) -> list[tuple[int, ...]]:
     """The shape of each answer's action, which is what a check reports."""
     return [tuple(int(side) for side in np.shape(answer["action"])) for answer in answers]
@@ -500,7 +547,19 @@ def _check_repeatable(
     first: Sequence[Mapping[str, Any]],
     second: Sequence[Mapping[str, Any]],
 ) -> None:
-    """Refuse a policy that answered the same observations from the same seed differently."""
+    """Refuse a policy that answered the same observations from the same seed differently.
+
+    Two NaNs in the same place are the same answer. C-P2 reads the `action` alone, so an array a
+    policy sends beside it - a value head, a log probability - is held to the wire and to nothing
+    else, and may legitimately be NaN; a policy that answers that same NaN on both runs answered
+    the unit the same way, and refusing it would send a runtime hunting a seed it does follow. A
+    NaN against a number is still a difference.
+
+    `equal_nan` is asked for whatever the dtype, and no dtype test guards it: every answer reaching
+    here went through `wire.encode` (in `_drive`) or came back off the wire, and `wire.DTYPES` is
+    bool, the integers and the floats and complex - `np.array_equal` takes `equal_nan` for all of
+    them. The dtypes it does not (object, strings, datetimes) cannot be sent at all.
+    """
     for call, (before, after) in enumerate(zip(first, second, strict=True)):
         if sorted(before) != sorted(after):
             raise ConformanceError(
@@ -509,8 +568,8 @@ def _check_repeatable(
             )
         for name in sorted(before):
             one, two = np.asarray(before[name]), np.asarray(after[name])
-            equal_nan = one.dtype.kind in "fc" and two.dtype.kind in "fc"
-            if one.shape != two.shape or not np.array_equal(one, two, equal_nan=equal_nan):
+            # `array_equal` compares the shapes itself, so a shape test beside it would be dead.
+            if not np.array_equal(one, two, equal_nan=True):
                 raise ConformanceError(
                     f"{policy}: from seed {seed}, answer {call}'s {name!r} differs between two "
                     "runs of the same observations: every model is given one seed per unit, so "
@@ -519,18 +578,20 @@ def _check_repeatable(
 
 
 def _policy_call(policy: str, op: str, call: Any) -> Any:
-    """The policy's own call, with a `ValueError` of its own named as the refusal it is.
+    """The policy's own call, with an exception of its own named as the refusal it is.
 
-    A policy that writes over the read-only arrays it was handed raises numpy's bare
-    "assignment destination is read-only"; so does a chunk `serve.checked_action` refuses. Served,
-    each comes back as `PolicyUnavailable`; here it would be an exception a fork's selftest does
-    not catch, so it is the `ConformanceError` this module promises.
+    A policy that writes over the read-only arrays it was handed raises numpy's bare "assignment
+    destination is read-only", and so does a chunk `serve.checked_action` refuses; an answer that
+    is not a mapping raises that same function's `TypeError`; a `reset` that cannot run raises
+    whatever the runtime raises. Served, every one of them comes back as `PolicyUnavailable`; here
+    each would be an exception a fork's selftest does not catch, so each is the `ConformanceError`
+    this module promises, naming the call and the class it came from.
     """
     try:
         return call()
     except ConformanceError:
         raise
-    except ValueError as exc:
+    except Exception as exc:
         raise ConformanceError(f"{policy}: {op} raised {type(exc).__name__}: {exc}") from None
 
 

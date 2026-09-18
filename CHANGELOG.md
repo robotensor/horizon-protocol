@@ -180,26 +180,31 @@ adopts one version set once. What a consumer must change:
   declared space to Q3 and P9 (C-P1), as one exception type, and returns the arms' slices;
   `hold_still(spec, position=..., gripper=...)` builds a row of the declared layout and holds it to
   C-P2 and C-P3; `check_policy` builds a `module:Class` through `serve.build_policy`, the server's
-  own builder, and drives it, so every answer passes `serve.checked_action`,
-  `conventions.check_chunk`, the wire encoder and, for a policy that declares `observe_every`,
-  `observe.check_chunk` on a chunk sent the stack it produced, and with `repeat=True` the same seed
-  is driven twice and must answer the same - each answer is copied as it is taken, so a policy
-  answering from a buffer it reuses is caught in process as it is over the socket; a policy built
-  here is closed however the check ends, what it declares (`action_type`, `observe_every`, `served`)
-  being refused included, because it outlives the check where a served one goes with its server;
-  `check_served` drives the same policy through
-  `python -m zerowam_protocol.serve` and `RemotePolicy` in two processes and requires exit 0;
+  own builder, resets it from `seed` and drives it with `calls` different observations, so every
+  answer passes `serve.checked_action`, `conventions.check_chunk`, the wire encoder and, for a
+  policy that declares `observe_every`, `observe.check_chunk` on a chunk sent the stack it
+  produced, and with `repeat=True` the same seed is driven twice and must answer the same - each
+  answer is copied as it is taken, so a policy answering from a buffer it reuses is caught in
+  process as it is over the socket, and two NaNs in the same place are the same answer; a policy
+  built here is closed however the check ends, what it declares (`action_type`, `observe_every`,
+  `served`) being refused included, because it outlives the check where a served one goes with its
+  server, and every exception the policy's own calls raise is a `ConformanceError`, as it is a
+  `PolicyUnavailable` over the socket; `check_served` resets the same policy from `seed` and
+  drives it, held to the `observe_every` it declared, through `python -m zerowam_protocol.serve`
+  and `RemotePolicy` in two processes and requires exit 0, killing and refusing a server that
+  outlives its client; both refuse the declared space (C-P1), the demonstration arrays (Q4) and
+  the `info` beside them (Q14) before a policy is built or a server is started;
   `check_bundle` reads a directory as bundle v2 and adds the one thing reading it does not settle,
   that the demonstration fits in one `prompt` (counted from the arrays' shapes, so no copy of the
-  bundle is made), and `check_result` reads a `result.json` as result v2 and, given the bundle,
-  holds the two to each other (`unit_id`, the bundle's digest as `demo_sha256`, the task config,
-  the fork commit). `demonstration(spec)` and `observation(spec, cameras)` build what the checks
-  send, so a runtime with no benchmark beside it can still be driven; what a policy is handed is
-  read-only as the server's arrays are, a demonstration passed in as `demo=` included, as a view
-  that leaves the caller's own arrays writeable. What the module adds raises the new
-  `ConformanceError`; what it wraps keeps raising `BundleSchemaError`, `BundleError` and
-  `PolicyUnavailable`, so a fork's exit statuses do not change. The consumers' own adoption lands
-  with them (RT16, RC11, RU9). (#12)
+  bundle is made), and `check_result` reads a `result.json` as result v2 and, given the bundle
+  (read as bundle v2 too), holds the two to each other (`unit_id`, the bundle's digest as
+  `demo_sha256`, the task config, the fork commit). `demonstration(spec)` and
+  `observation(spec, cameras)` build what the checks send, so a runtime with no benchmark beside it
+  can still be driven; what a policy is handed is read-only as the server's arrays are, a
+  demonstration passed in as `demo=` included, as a view that leaves the caller's own arrays
+  writeable. What the module adds raises the new `ConformanceError`; what it wraps keeps raising
+  `BundleSchemaError`, `BundleError` and `PolicyUnavailable`, so a fork's exit statuses do not
+  change. The consumers' own adoption lands with them (RT16, RC11, RU9). (#12)
 - Protocol 3: the `hello` exchange records what was served and what the client supports. The reply
   may carry `served` - the family's sha and version, the resolved knobs, the weights' fingerprint
   and sha (`policy.SERVED_KEYS`, which a policy exposes as an attribute) - so `result.json` says

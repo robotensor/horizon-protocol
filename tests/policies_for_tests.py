@@ -411,3 +411,114 @@ class BufferPolicy:
         self.calls += 1
         self.row[0] = self.calls * 0.001
         return {"action": self.row}
+
+
+#: The seed every `ResettingPolicy` was reset with, in order, so a test can see reset was driven.
+SEEDS = []
+
+
+class ResettingPolicy:
+    """Records the seed it is reset with, which is the only way to see that a check reset it.
+
+    `reset(seed)` is the call a benchmark makes before every episode, and the one `repeat` stands
+    on: every model evaluated on a unit is given that one seed. Both stubs reset to nothing, so a
+    check that never called it would drive them just the same.
+    """
+
+    action_type = "ee"
+
+    def __init__(self) -> None:
+        self.seeds = []
+
+    def reset(self, seed) -> None:
+        self.seeds.append(seed)
+        SEEDS.append(seed)
+
+    def set_demonstration(self, arrays, info) -> None:
+        pass
+
+    def act(self, observation):
+        return {"action": _held_row(16)}
+
+
+class RaisingResetPolicy:
+    """Cannot reset, which is a policy no unit can be run against."""
+
+    action_type = "ee"
+
+    def reset(self, seed) -> None:
+        raise RuntimeError("reset blew up")
+
+    def set_demonstration(self, arrays, info) -> None:
+        pass
+
+    def act(self, observation):
+        return {"action": _held_row(16)}
+
+
+class SeedPolicy:
+    """Refuses a `reset` from any seed but the one it was built with, and an `act` before a reset.
+
+    `ResettingPolicy` records its seeds in the process it runs in, which served is the server's,
+    where no test can read them. This one refuses instead, so over the socket a check that never
+    resets it, or resets it from a seed other than the one it was given, is `PolicyUnavailable`.
+    `--policy-arg` values arrive as strings.
+    """
+
+    action_type = "ee"
+
+    def __init__(self, seed="0") -> None:
+        self.seed = int(seed)
+        self.started = False
+
+    def reset(self, seed) -> None:
+        if seed != self.seed:
+            raise ValueError(f"reset from seed {seed!r}; this unit's seed is {self.seed}")
+        self.started = True
+
+    def set_demonstration(self, arrays, info) -> None:
+        pass
+
+    def act(self, observation):
+        if not self.started:
+            raise RuntimeError("act before reset: no episode was started")
+        return {"action": _held_row(16)}
+
+
+#: The bytes of the `frames_head` every `FrameRecordingPolicy` was sent, call by call.
+SEEN_FRAMES = []
+
+
+class FrameRecordingPolicy:
+    """Records the frames it is sent, so a check that sends one observation twice can be seen.
+
+    `ChunkPolicy` records shapes, which are the same whatever the pixels are; this one records the
+    pixels, which is what says the `calls` observations of a check are `calls` different ones.
+    """
+
+    action_type = "ee"
+
+    def reset(self, seed) -> None:
+        pass
+
+    def set_demonstration(self, arrays, info) -> None:
+        pass
+
+    def act(self, observation):
+        SEEN_FRAMES.append(np.asarray(observation["frames_head"]).tobytes())
+        return {"action": _held_row(16)}
+
+
+class NotAMappingPolicy:
+    """Answers `act` with a list, which `serve.checked_action` refuses as a `TypeError`."""
+
+    action_type = "ee"
+
+    def reset(self, seed) -> None:
+        pass
+
+    def set_demonstration(self, arrays, info) -> None:
+        pass
+
+    def act(self, observation):
+        return [_held_row(16)]
