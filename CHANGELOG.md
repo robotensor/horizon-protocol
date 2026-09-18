@@ -115,6 +115,12 @@ adopts one version set once. What a consumer must change:
 
 ### Added
 
+- `RemotePolicy` takes a timeout per kind of call: `timeout_s` still covers connecting,
+  authenticating, `hello`, `reset` and `close`, `prompt_timeout_s` covers `set_demonstration` and
+  `act_timeout_s` covers one `act`; both default to `timeout_s`, and each call is bounded by its own
+  alone. One budget for everything meant the competition's 30 s act limit also failed the first
+  prompt, in which a runtime loads its weights, so the scripts passed 600 s for every call instead.
+  A fork that takes the two limits passes them here. (#7)
 - A model family's demonstration inputs are checked against one vocabulary, beside the allow-list:
   `bundle.DEMONSTRATION_INPUTS = ("video", "caption")`, `bundle.PROMPT_LANGUAGES = ("none",
   "generic", "demonstration_caption")` and `bundle.check_demonstration_inputs(inputs) -> list[str]`,

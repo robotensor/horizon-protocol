@@ -29,7 +29,14 @@ float numpy arrays.
 ```python
 from zerowam_protocol.client import RemotePolicy
 
-with RemotePolicy("127.0.0.1:7100", authkey, timeout_s=60.0, log_file="policy.log") as policy:
+with RemotePolicy(
+    "127.0.0.1:7100",
+    authkey,
+    timeout_s=60.0,  # connect, authenticate, hello, reset, close
+    prompt_timeout_s=600.0,  # set_demonstration: the first one loads the weights
+    act_timeout_s=30.0,  # one act
+    log_file="policy.log",
+) as policy:
     policy.hello()  # protocol, action_type, observe_every, policy
     policy.set_demonstration(demo_arrays, info)  # one demonstration, named arrays
     policy.reset(seed)
@@ -40,6 +47,11 @@ A policy that must see what its own chunk did declares `observe_every = N`. The 
 records an observation after every N-th action and sends them, stacked, with the next `act`
 (`zerowam_protocol.observe.stack`); the first `act` of an episode carries the initial observation
 alone. A chunk whose length is not a multiple of N is refused (`observe.check_chunk`).
+
+The three timeouts are separate because the three calls cost different things: a runtime loads its
+weights inside the first `set_demonstration`, so an act budget of 30 s would fail it, and giving
+every call the prompt's budget instead lets a policy sit in one `act` for ten minutes. Both
+per-call budgets default to `timeout_s`, and each call is bounded by its own alone.
 
 Every way the policy can fail — an error reply, a timeout, a hang-up, a malformed message — raises
 `PolicyUnavailable`, and the benchmark decides what it costs the unit.

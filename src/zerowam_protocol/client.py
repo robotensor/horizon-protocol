@@ -1,6 +1,7 @@
 """`RemotePolicy`: what a benchmark drives a served policy with.
 
-    with RemotePolicy(address, authkey, timeout_s=60.0, log_file=server_log) as policy:
+    with RemotePolicy(address, authkey, timeout_s=60.0, prompt_timeout_s=600.0,
+                      act_timeout_s=30.0, log_file=server_log) as policy:
         policy.hello()        # {"protocol": 2, "action_type": ..., "observe_every": N, ...}
         policy.set_demonstration(prompt_arrays, info)
         policy.reset(seed)
@@ -13,7 +14,7 @@ It needs numpy and the standard library only. A benchmark imports it; the compet
 `python -m zerowam_protocol.serve`.
 
 **Every way the policy can fail raises `PolicyUnavailable`**: an error reply, a call that does not
-finish within `timeout_s`, a server that hangs up or was never there, a key it refuses, a reply
+finish within its own budget, a server that hangs up or was never there, a key it refuses, a reply
 that is malformed. When `log_file` names the server's log, the exception's message ends with its
 tail; otherwise with the tail the server sent in its error reply, if any. A benchmark catches that
 one exception and decides what it costs the unit.
@@ -24,10 +25,20 @@ allow-list of decision Q4, `frames_<camera>` and `times` only, no object array) 
 sent, and refuses anything else with `BundleSchemaError`: a fork maps it to exit 2, never to a
 harness void or a model failure.
 
-**Timeouts are hard.** Connecting (retried while nothing listens yet) and authenticating share
-one `timeout_s`, and each call gets its own, covering both sending the request and receiving the
-whole reply. When one runs out the socket is shut down, which unblocks whatever was waiting and
-tells the server its client has gone; the server exits.
+**Timeouts are hard, and a call is held to its own.** Three budgets, because the three calls cost
+different things:
+
+| Budget | Covers | Why it is its own |
+|---|---|---|
+| `timeout_s` | connecting, authenticating, `hello`, `reset`, `close` | reaching the policy |
+| `prompt_timeout_s` | `set_demonstration` | a runtime loads its weights in the first prompt |
+| `act_timeout_s` | `act` | the competition's per-action budget |
+
+`prompt_timeout_s` and `act_timeout_s` default to `timeout_s`, so one number still works. Each
+budget covers both sending the request and receiving the whole reply, and nothing else is counted
+against it. When one runs out the socket is shut down, which unblocks whatever was waiting and
+tells the server its client has gone; the server exits. Giving every call the prompt's budget, as
+a benchmark had to before, let a policy sit in one `act` for as long as loading weights may take.
 
 After an error reply to `reset`, `prompt` or `act` the connection stays usable - the server keeps
 serving. After an error reply to `hello` the policy could not be built and the server has ended
@@ -75,16 +86,31 @@ class RemotePolicy:
         authkey: bytes,
         *,
         timeout_s: float = 60.0,
+        prompt_timeout_s: float | None = None,
+        act_timeout_s: float | None = None,
         log_file: str | os.PathLike[str] | None = None,
     ) -> None:
         if not isinstance(authkey, (bytes, bytearray)):
             raise TypeError("authkey must be bytes")
         if len(authkey) < wire.MIN_AUTHKEY_BYTES:
             raise ValueError(f"authkey must be at least {wire.MIN_AUTHKEY_BYTES} bytes")
-        if not timeout_s > 0:
-            raise ValueError(f"timeout_s must be positive, not {timeout_s!r}")
+        for name, value in (
+            ("timeout_s", timeout_s),
+            ("prompt_timeout_s", prompt_timeout_s),
+            ("act_timeout_s", act_timeout_s),
+        ):
+            if value is not None and not value > 0:
+                raise ValueError(f"{name} must be positive, not {value!r}")
         self.address = address
+        #: Connecting, authenticating, `hello`, `reset` and `close`.
         self.timeout_s = float(timeout_s)
+        #: `set_demonstration`, which loads a runtime's weights the first time. Defaults to
+        #: `timeout_s`.
+        self.prompt_timeout_s = (
+            self.timeout_s if prompt_timeout_s is None else float(prompt_timeout_s)
+        )
+        #: One `act`, the competition's per-action budget. Defaults to `timeout_s`.
+        self.act_timeout_s = self.timeout_s if act_timeout_s is None else float(act_timeout_s)
         self.log_file = log_file
         #: The served policy's action type, known once `hello` has been answered.
         self.action_type: str | None = None
@@ -138,6 +164,9 @@ class RemotePolicy:
     def set_demonstration(self, arrays: Mapping[str, Any], info: Mapping[str, Any]) -> None:
         """Hand over the demonstration: its public arrays and the public `info` fields.
 
+        This one call is bounded by `prompt_timeout_s`, not by the act budget: a runtime loads its
+        weights here, the first time.
+
         `arrays` is `bundle.public_arrays` of what `bundle.read` returned: `frames_<camera>` uint8
         RGB `(T, H, W, 3)` and `times` float64 `(T,)`, nothing else (decision Q4). Any other array,
         an object array, or frames and times that break the bundle schema are refused with
@@ -155,7 +184,10 @@ class RemotePolicy:
         self._call("prompt", {"info": dict(info)}, arrays)
 
     def act(self, observation: Mapping[str, Any]) -> dict[str, np.ndarray]:
-        """The policy's answer to one observation: at least `action`, of shape (A,) or (H, A)."""
+        """The policy's answer to one observation: at least `action`, of shape (A,) or (H, A).
+
+        Bounded by `act_timeout_s`.
+        """
         _, arrays = self._call("act", {}, observation, expect="action")
         action = arrays.get("action")
         if action is None or action.ndim not in (1, 2) or 0 in action.shape:
@@ -240,7 +272,8 @@ class RemotePolicy:
                 raise self._unavailable(op, f"the connection to {self.address} is {why}")
             frames = wire.encode(op, fields, arrays)  # refused here, before anything is sent
             failure = None
-            with self._deadline(self.timeout_s) as expired:
+            budget = self._budget(op)
+            with self._deadline(budget) as expired:
                 try:
                     for frame in frames:
                         conn.send_bytes(frame)
@@ -254,7 +287,7 @@ class RemotePolicy:
                 except Exception as exc:  # whatever else a hostile reply makes reading raise
                     failure = f"malformed reply: {_describe(exc)}"
             if expired.is_set():
-                failure = f"no answer within {self.timeout_s:g}s"
+                failure = f"no answer within {budget:g}s"
             if failure is not None:
                 self._abandon()
                 raise self._unavailable(op, failure)
@@ -273,6 +306,14 @@ class RemotePolicy:
             self._abandon()
             raise self._unavailable(op, f"the server answered {reply_op!r}, not {expect!r}")
         return reply_fields, reply_arrays
+
+    def _budget(self, op: str) -> float:
+        """How long this one call may take. Only `prompt` and `act` have their own."""
+        if op == "prompt":
+            return self.prompt_timeout_s
+        if op == "act":
+            return self.act_timeout_s
+        return self.timeout_s
 
     @contextlib.contextmanager
     def _deadline(self, seconds: float) -> Iterator[threading.Event]:

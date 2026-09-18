@@ -136,3 +136,45 @@ def test_a_served_policy_keeps_serving_after_a_refused_demonstration(tmp_path):
         assert served.policy.act(observation())["action"].shape == (16,)
     finally:
         served.close()
+
+
+def test_a_prompt_longer_than_the_act_budget_still_finishes(tmp_path):
+    """The first prompt loads a runtime's weights; an act must not have to allow for that."""
+    served = serve(
+        tmp_path,
+        "policies_for_tests:SlowPolicy",
+        "prompt_s=0.5",
+        "reset_s=0.4",
+        "act_s=2.0",
+        timeout_s=30.0,
+        prompt_timeout_s=30.0,
+        act_timeout_s=0.15,
+    )
+    arrays, info = demonstration()
+    try:
+        served.policy.hello()
+        served.policy.set_demonstration(arrays, info)  # 0.5 s, past the act budget
+        served.policy.reset(1)  # 0.4 s, past the act budget
+
+        with pytest.raises(PolicyUnavailable, match="no answer within 0.15s") as timed_out:
+            served.policy.act(observation())
+    finally:
+        served.close()
+
+    assert timed_out.value.op == "act"
+
+
+def test_each_call_carries_its_own_budget(recorder):
+    """Absent, a per-call budget is `timeout_s`; given, it governs that call alone."""
+    client = recorder.client(timeout_s=7.0, act_timeout_s=0.5)
+
+    assert (client.timeout_s, client.prompt_timeout_s, client.act_timeout_s) == (7.0, 7.0, 0.5)
+    assert client._budget("hello") == client._budget("reset") == client._budget("close") == 7.0
+    assert client._budget("prompt") == 7.0
+    assert client._budget("act") == 0.5
+
+
+@pytest.mark.parametrize("budget", ["timeout_s", "prompt_timeout_s", "act_timeout_s"])
+def test_a_budget_that_is_not_a_budget_is_refused_before_connecting(tmp_path, budget):
+    with pytest.raises(ValueError, match=f"{budget} must be positive"):
+        RemotePolicy(str(tmp_path / "nothing.sock"), b"k" * 32, **{budget: 0})
