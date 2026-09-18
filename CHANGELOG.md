@@ -147,6 +147,20 @@ adopts one version set once. What a consumer must change:
   caller that builds one policy after another in one process (`conformance.check_policy`, a fork's
   selftest over the runtimes it ships) held it for the rest of the run. A close that blows up is
   dropped, so the refusal still says why the policy could not be built. (#12)
+- Four refusals no longer escape as another class, each found by the contract-v2 reviews
+  (#23): `bundle.write` into a directory it cannot write (a parent that is a file, no permission, a
+  full disk) raises `BundleError`, not `NotADirectoryError`, as its module promises;
+  `conventions.check_observation` lists a ragged or unconvertible `frames_*` as one more C-P3
+  problem instead of raising numpy's own `ValueError` or `TypeError`; `RemotePolicy` refuses an
+  infinite or out-of-range `timeout_s`, `prompt_timeout_s` or `act_timeout_s` with a `ValueError`
+  naming it, where it was an `OverflowError` from the socket or a deadline thread that died; and a
+  policy whose `observe_every` breaks after it was built is answered at the next `hello` with an
+  error reply (exit 1), as a broken `served` is, instead of killing the server with the client
+  hearing only that it went away. (#23)
+- `result.write` refuses a `result.json` that is a symlink, as `result.read` and the video already
+  did, instead of writing the unit's result through it and outside its run directory; and
+  `result.write` and `result.read` hold `served["knobs"]` to the mapping `hello` holds it to, so a
+  result cannot record a `knobs` no reply carried. (#23)
 - A kept server neither leaks per session nor exits 0 when a client hangs up mid-call. Each session
   duplicated the connection's descriptor into a hang-up watch and started a thread that waited
   forever, and nothing released either: 51 sessions held 55 descriptors and 75 threads where one

@@ -73,6 +73,22 @@ class ObservingPolicy:
         }
 
 
+class LaterNegativeObservePolicy:
+    """Built with a valid cadence, which its own `reset` then breaks: hello reads it again."""
+
+    action_type = "ee"
+    observe_every = 0
+
+    def reset(self, seed: int) -> None:
+        self.observe_every = -3
+
+    def set_demonstration(self, arrays, info) -> None:
+        pass
+
+    def act(self, observation):
+        return {"action": np.zeros(16)}
+
+
 class NegativeObservePolicy:
     """Declares an observation cadence that means nothing, so it cannot be built."""
 

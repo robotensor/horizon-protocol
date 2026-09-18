@@ -125,8 +125,14 @@ class RemotePolicy:
             ("prompt_timeout_s", prompt_timeout_s),
             ("act_timeout_s", act_timeout_s),
         ):
-            if value is not None and not value > 0:
-                raise ValueError(f"{name} must be positive, not {value!r}")
+            # One rule for the three, as serve's --idle-timeout-s: positive and finite, and no
+            # longer than a timer can wait - an infinite budget is an OverflowError out of the
+            # socket or a deadline thread that dies, never "no timeout".
+            if value is not None and not 0 < value <= threading.TIMEOUT_MAX:
+                raise ValueError(
+                    f"{name} must be a positive, finite number of seconds up to "
+                    f"{threading.TIMEOUT_MAX:g}, not {value!r}"
+                )
         self.address = address
         #: Connecting, authenticating, `hello`, `reset` and `close`.
         self.timeout_s = float(timeout_s)

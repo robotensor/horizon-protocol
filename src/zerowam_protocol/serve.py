@@ -347,13 +347,15 @@ class Session:
                 raise _SessionOver(EXIT_FAILED)
             self.policy, self.action_type = policy, policy.action_type
         # Every hello, not only the one that built the policy: a server with --max-sessions keeps
-        # its policy across clients, and each client must hear how often to observe.
-        self.observe_every = observe.checked_every(getattr(self.policy, "observe_every", 0))
+        # its policy across clients, and each client must hear how often to observe. Both are the
+        # policy's own attributes and either may have gone wrong since it was built, so each is
+        # answered with an error reply, never left to kill the server.
         try:
+            self.observe_every = observe.checked_every(getattr(self.policy, "observe_every", 0))
             served = checked_served(getattr(self.policy, "served", None))
         except ValueError as exc:
             self.policy_failed = True  # the runtime's own bug, and it would say the same again
-            log.error("the policy's served is not protocol 3's: %s", exc)
+            log.error("the policy's hello is not protocol 3's: %s", exc)
             self._error("ValueError", f"hello: {exc}")
             raise _SessionOver(EXIT_FAILED) from None
         self._refuse_client(_mismatch_problems(fields, self.action_type, self.observe_every))

@@ -71,8 +71,9 @@ resamples by: nothing here resamples a demonstration.
 rebuild repeats it, so a fork exits 2. Anything else `read` finds - a manifest or an npz that cannot
 be read, a missing file, a hash that does not match, a `files` entry that is not one of the
 bundle's own files - is a plain `BundleError`: the bytes are not what was written, and a fork exits
-4. Nothing reaches the caller as an `OSError`, a `KeyError` or numpy's own `ValueError`. Every
-message names what was refused and the rule.
+4. So is a directory `write` cannot write into (a parent that is a file, no permission, a full
+disk). Nothing reaches the caller of either as an `OSError`, a `KeyError` or numpy's own
+`ValueError`. Every message names what was refused and the rule.
 """
 
 from __future__ import annotations
@@ -243,7 +244,8 @@ def write(
     Everything is checked before anything is written: a manifest, an array, a camera, an
     `action_spec` (Q3) or a directory that breaks the schema is refused with `BundleSchemaError`,
     and the directory is left as it was. The keys in `WRITTEN_KEYS` are filled in here and refused
-    from the caller.
+    from the caller. A directory that cannot be written is a plain `BundleError`, never an
+    `OSError`.
     """
     if not isinstance(manifest, Mapping):
         raise BundleSchemaError(f"manifest is a {type(manifest).__name__}, not a mapping")
@@ -274,21 +276,28 @@ def write(
     private_text = None if private is None else _json_text(private, "private")
     expert_arrays = None if expert is None else _checked_expert(expert)
     out = Path(out_dir)
-    _check_directory(out)
+    # A directory that cannot be written - a parent that is a file, no permission, a full disk - is
+    # a `BundleError` like every other failure here, never an `OSError`: a fork maps this module's
+    # classes to its exits, and an `OSError` would escape them.
+    try:
+        _check_directory(out)
+        (out / PRIVATE_DIR).mkdir(parents=True, exist_ok=True)
+        # Compressed: a pool holds a thousand of these, and frames dominate every one of them.
+        np.savez_compressed(out / FRAMES_NPZ, **arrays)
+        if private_text is not None:
+            (out / SCENE_JSON).write_text(private_text)
+        if expert_arrays is not None:
+            np.savez_compressed(out / EXPERT_NPZ, **expert_arrays)
 
-    (out / PRIVATE_DIR).mkdir(parents=True, exist_ok=True)
-    # Compressed: a pool holds a thousand of these, and frames dominate every one of them.
-    np.savez_compressed(out / FRAMES_NPZ, **arrays)
-    if private_text is not None:
-        (out / SCENE_JSON).write_text(private_text)
-    if expert_arrays is not None:
-        np.savez_compressed(out / EXPERT_NPZ, **expert_arrays)
-
-    record["files"] = {name: digest(out / name) for name in PUBLIC_FILES if (out / name).is_file()}
-    record["private_files"] = {
-        name: digest(out / name) for name in _private_paths(out, BundleSchemaError)
-    }
-    (out / DEMO_JSON).write_text(_json_text(record, "manifest"))
+        record["files"] = {
+            name: digest(out / name) for name in PUBLIC_FILES if (out / name).is_file()
+        }
+        record["private_files"] = {
+            name: digest(out / name) for name in _private_paths(out, BundleSchemaError)
+        }
+        (out / DEMO_JSON).write_text(_json_text(record, "manifest"))
+    except OSError as exc:
+        raise BundleError(f"{out}: cannot be written: {exc}") from None
     return record
 
 

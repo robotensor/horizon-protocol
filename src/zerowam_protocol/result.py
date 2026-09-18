@@ -41,8 +41,9 @@ keys but never one of these (`REQUIRED_KEYS`), so nothing can overwrite an outco
   result outside a dry run (Q4).
 - `served`: `null`, or the mapping the server's reply to `hello` said it served (protocol 3), which
   the fork records unchanged: `zerowam_protocol.policy.SERVED_KEYS` (`family_sha256`,
-  `family_version`, `knobs`, `weights_fingerprint`, `weights_sha256`) and nothing else, so what an
-  operator's `--knobs` resolved to is in the record of every unit it produced.
+  `family_version`, `knobs`, `weights_fingerprint`, `weights_sha256`) and nothing else, `knobs` a
+  mapping as `policy.checked_served` holds it at `hello`, so what an operator's `--knobs` resolved
+  to is in the record of every unit it produced.
 
 `write` and `read` hold a result to the same rules, and every refusal is a `ValueError` that names
 the field and the rule - a run directory that cannot be written or read included, so a fork maps one
@@ -146,7 +147,8 @@ def write(
     `out_dir` if that file exists now, so write the video first. `extra` adds keys of the fork's
     own and is refused if it names a field of the schema. Everything is checked before anything is
     written, and a refusal is a `ValueError` naming the field and the rule, an `out_dir` that
-    cannot be written included.
+    cannot be written included. Neither file is written or read through a symlink, as `read` holds
+    them: a `result.json` that is one is refused, not written through to wherever it points.
     """
     record: dict[str, Any] = {
         "result_version": RESULT_VERSION,
@@ -185,6 +187,12 @@ def write(
         raise ValueError(f"result: {'; '.join(problems)}")
     _json_text(record)  # refused now, before anything is written
     out = Path(out_dir)
+    # Never through a symlink, as `read` refuses one and the video is refused here too: a link
+    # would put this unit's result outside its run directory, or over another unit's (result v2).
+    if (out / RESULT_JSON).is_symlink():
+        raise ValueError(
+            f"{out / RESULT_JSON}: a symlink; a run's result is its own file (result v2)"
+        )
     record["rollout_mp4_sha256"] = _rollout_sha256(out)
     # A run directory that cannot be written is a ValueError too: a fork maps this module's one
     # error class to its harness exit, and an OSError from here would escape it (result v2).
@@ -310,6 +318,13 @@ def _problems(record: Mapping[str, Any]) -> list[str]:
                 problems.append(
                     f"served carries {', '.join(unknown)}; it holds {', '.join(SERVED_KEYS)} and "
                     "nothing else, as the reply to hello carried it (protocol 3)"
+                )
+            # The one value whose shape `policy.checked_served` fixes at hello, so a result that
+            # breaks it was not recorded unchanged from a reply (protocol 3).
+            if "knobs" in served and not isinstance(served["knobs"], dict):
+                problems.append(
+                    f"served['knobs'] is {served['knobs']!r}, not the mapping of resolved knobs "
+                    "the reply to hello carried (protocol 3)"
                 )
     return problems
 

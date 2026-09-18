@@ -280,6 +280,18 @@ def test_read_refuses_a_result_that_is_a_symlink(tmp_path):
         result.read(run)
 
 
+def test_write_refuses_a_result_that_is_a_symlink_and_writes_nothing_through_it(tmp_path):
+    """`write` holds `result.json` to the rule `read` does, so no link carries it out of the run."""
+    run = tmp_path / "run"
+    run.mkdir()
+    elsewhere = tmp_path / "elsewhere.json"
+    (run / result.RESULT_JSON).symlink_to(elsewhere)
+
+    with pytest.raises(ValueError, match="result.json: a symlink"):
+        result.write(run, **result_fields())
+    assert not elsewhere.exists()
+
+
 def test_read_refuses_a_value_json_cannot_hold(tmp_path):
     result.write(tmp_path, **result_fields())
     path = tmp_path / result.RESULT_JSON
@@ -424,6 +436,18 @@ def test_served_holds_the_keys_the_hello_reply_carries(tmp_path):
     result.write(tmp_path, **result_fields(served={"knobs": {"steps": 4}}))  # a subset is fine
     _rewrite(tmp_path, served={"knobs": {"steps": 4}, "family": "zerowam"})
     with pytest.raises(ValueError, match="served carries family"):
+        result.read(tmp_path)
+
+
+@pytest.mark.parametrize("knobs", [[], 5, "steps=4", None])
+def test_served_knobs_is_a_mapping_as_hello_holds_it(tmp_path, knobs):
+    """`policy.checked_served` refuses these at hello, so no result may record one (protocol 3)."""
+    with pytest.raises(ValueError, match=r"served\['knobs'\]"):
+        result.write(tmp_path, **result_fields(served={"knobs": knobs}))
+
+    result.write(tmp_path, **result_fields(served={"knobs": {"steps": 4}}))
+    _rewrite(tmp_path, served={"knobs": knobs})
+    with pytest.raises(ValueError, match=r"served\['knobs'\]"):
         result.read(tmp_path)
 
 
