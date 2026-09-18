@@ -72,6 +72,19 @@ adopts one version set once. What a consumer must change:
     missing or extra, or a changed `rollout.mp4` is refused. Neither `result.json` nor
     `rollout.mp4` is read through a symlink: a run directory holds its own result and its own
     video.
+- **Protocol 3.**
+  - A fork sends Q14's `info` keys with every demonstration: `embodiment`, `action_spec` (Q3),
+    `cameras` (the observation cameras, `{name, role, w, h}` each), `demo_cameras` (the
+    demonstration's channels, exactly the `frames_` arrays sent), `step_limit` and `instruction`,
+    exactly `"Follow the demonstrated behavior."`; `demo_text` only where the video's source
+    supplies a caption. `action_type`, `action_dim`, `action_dims` and `control_hz` at the top
+    level are refused, and an `info` that breaks the schema is a `BundleSchemaError` (exit 2), at
+    the client before anything is sent and at the server on every `prompt`. An `info` is plain JSON
+    throughout, a fork's own keys included: a numpy scalar or a `Path` among them is a
+    `BundleSchemaError` too, not a `WireError`.
+  - The server holds a `prompt`'s arrays to the demonstration allow-list as well as its `info`, so
+    a client that is not `RemotePolicy` cannot hand a policy the demonstrator's record (Q4); the
+    session survives the refusal.
 - **Smoke policies.**
   - A harness that serves `ZeroPolicy` sends `info.action_spec` (Q3), whose `state_channel` names
     the array it echoes to hold still, or names the channel itself with
@@ -133,6 +146,19 @@ adopts one version set once. What a consumer must change:
 
 ### Added
 
+- `zerowam_protocol.info`: the keys a demonstration's `info` carries (decision Q14), as
+  `REQUIRED_KEYS` (`embodiment`, `action_spec`, `cameras`, `demo_cameras`, `step_limit`,
+  `instruction`), the optional `demo_text`, `INSTRUCTION` and `check_info(info, arrays)`. `info`
+  was free JSON, and the forks disagreed: RoboTwin sent no `action_spec` or `control_hz` and spread
+  `action_type`, `action_dim` and `action_dims` over the top level, RoboCasa spread `action_spec`
+  there, and on HumanGen RoboTwin's `cameras` named the demonstration channel instead of the
+  robot's observation cameras. The action space is `action_spec`'s alone now (`action_type`,
+  `action_dim`, `action_dims` and `control_hz` at the top level are refused), `cameras` is the
+  observation cameras as `{name, role, w, h}` and `demo_cameras` the demonstration's own channels,
+  which must name exactly the `frames_` arrays sent. Channel names stay free strings: nothing here
+  validates one. `RemotePolicy.set_demonstration` refuses a `BundleSchemaError` before a byte is
+  sent, and the server refuses on every `prompt`, so a client that is not `RemotePolicy` cannot
+  hand a policy another `info`. (#13)
 - The smoke policies fit the `Policy` protocol and their own docs. `isinstance(ZeroPolicy(),
   Policy)` was False, because a `runtime_checkable` Protocol checks every member it declares and
   `observe_every` was declared although it is optional; it is documented instead, so a policy passes

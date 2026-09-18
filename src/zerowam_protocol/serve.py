@@ -14,6 +14,11 @@ libraries included) are appended to that file, and its tail travels with every e
 built on the first `hello` - `MODULE:CLASS` imported and constructed with the `--policy-arg`
 values - and the reply carries `protocol`, `action_type`, `observe_every` and `policy`. From
 then on each `reset`, `prompt` and `act` calls the policy once and answers `ok` or `action`.
+A `prompt`'s arrays are held to the demonstration allow-list (`frames_<camera>` and `times`,
+decision Q4) and its `info` to the keys decision Q14 names (`zerowam_protocol.info`), here as well
+as in the client, so no client can hand a policy the demonstrator's record or another `info`,
+whether or not it is `RemotePolicy`. The session survives either refusal: the message was the
+benchmark's error, not the policy's.
 
 **Failure.** An exception from the policy is logged and answered with an `error` reply (`type`,
 `message`, `log_tail`), and the server keeps serving: the client decides what it means. A message
@@ -70,8 +75,9 @@ from typing import Any
 
 import numpy as np
 
-from . import logs, observe, wire
-from .errors import PolicySpecError, WireError
+from . import bundle, logs, observe, wire
+from .errors import BundleSchemaError, PolicySpecError, WireError
+from .info import check_info
 from .policy import ACTION_TYPES
 
 log = logging.getLogger("zerowam_protocol.serve")
@@ -328,10 +334,17 @@ class Session:
             self._send("ok")
 
     def _op_prompt(self, fields: dict[str, Any], arrays: dict[str, np.ndarray]) -> None:
-        info = fields.get("info", {})
-        if not isinstance(info, dict):
-            self._error("WireError", f"prompt: info must be an object, not {type(info).__name__}")
-        elif self._call("prompt", self.policy.set_demonstration, arrays, info)[0]:
+        # Both halves checked here as well as in the client, so neither an `info` no runtime may be
+        # asked to read (Q14) nor the demonstrator's own record (Q4) reaches a policy from a client
+        # that is not `RemotePolicy`.
+        info = fields.get("info")
+        try:
+            bundle.check_public_arrays(arrays)
+            check_info(info, arrays)
+        except BundleSchemaError as exc:
+            self._error("BundleSchemaError", f"prompt: {exc}")
+            return
+        if self._call("prompt", self.policy.set_demonstration, arrays, info)[0]:
             self._send("ok")
 
     def _op_act(self, fields: dict[str, Any], arrays: dict[str, np.ndarray]) -> None:

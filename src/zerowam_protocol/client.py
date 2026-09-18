@@ -66,6 +66,7 @@ import numpy as np
 
 from . import __version__, bundle, logs, observe, wire
 from .errors import BundleSchemaError, PolicyUnavailable, WireError
+from .info import check_info
 from .policy import ACTION_TYPES
 
 __all__ = ["PolicyUnavailable", "RemotePolicy"]
@@ -177,10 +178,9 @@ class RemotePolicy:
         """
         try:
             bundle.check_public_arrays(arrays)
+            check_info(info, arrays)
         except BundleSchemaError as exc:
             raise BundleSchemaError(f"set_demonstration refused, nothing was sent: {exc}") from None
-        if not isinstance(info, Mapping):
-            raise TypeError(f"info must be a mapping, not {type(info).__name__}")
         self._call("prompt", {"info": dict(info)}, arrays)
 
     def act(self, observation: Mapping[str, Any]) -> dict[str, np.ndarray]:
