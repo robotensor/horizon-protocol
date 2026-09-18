@@ -139,14 +139,41 @@ not uniformly spaced (`bundle.frame_timing`).
 Every evaluated unit writes a `result.json`, however it ended:
 
 ```python
-from zerowam_protocol import result
+from zerowam_protocol import bundle, result
 
-result.write(out_dir, unit_id=unit_id, demo_sha256=sha, outcome="success", steps=214)
+# rollout.mp4, if any, is written into out_dir first: write hashes it.
+result.write(
+    out_dir,
+    unit_id=manifest["unit_id"],
+    demo_sha256=bundle.digest(bundle_dir),  # the whole bundle's digest
+    outcome="success",
+    task_config=manifest["task_config"],
+    task_config_sha256=manifest["task_config_sha256"],
+    fork_commit=fork_commit,
+    timing={"setup_s": 4.1, "policy_s": 61.0, "sim_s": 118.2, "total_s": 184.0},
+    steps=214,
+    step_limit=400,
+    fingerprint_ok=True,
+    policy_calls=7,
+)
+record = result.read(out_dir)  # the same rules again
 ```
 
 `outcome` is `success`, `failure` (the model's own side, including its errors) or `void` with a
-`void_cause` of `harness` or `runtime`. A harness void is dropped for every submission, so all of
-them stay compared on the same units.
+`void_cause` of `harness` or `runtime` (decision Q6); `write` and `read` both refuse a void without
+a cause and a success or failure with one. A harness void is dropped for every submission, so all
+of them stay compared on the same units.
+
+`RESULT_VERSION` is 2, and `read` refuses any other. Every field is in every result, `null` where
+it does not apply, and `extra` may add keys of a fork's own but never one of them, so nothing can
+overwrite an outcome. `demo_sha256` is `bundle.digest(bundle_dir)`; `task_config`,
+`task_config_sha256` and `fork_commit` record what produced the result; `timing` holds exactly
+`setup_s`, `policy_s`, `sim_s` and `total_s` (0.0 for a phase the unit never reached);
+`rollout_mp4_sha256` is filled by `write` from the `rollout.mp4` beside the result, and `read`
+checks one it finds there. Neither `result.json` nor `rollout.mp4` is read through a symlink: a run
+directory holds its own result and its own video. A unit run against a stub records `stub_policy` (`zero` or `replay`),
+which the competition refuses to score outside a dry run (decision Q4); `served` records what the
+server said it served.
 
 ## Smoke policies
 
