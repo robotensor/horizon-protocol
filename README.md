@@ -36,7 +36,7 @@ the first unit. The exit status says how the last session ended:
 
 | Status | Meaning |
 |---|---|
-| 0 | every session ended cleanly: `close`, a hang-up between calls, or idle too long |
+| 0 | the last session ended cleanly: `close`, a hang-up between calls, or idle too long (an earlier client refused under `--max-sessions` got its error reply, and does not change this) |
 | 1 | the policy could not be built, a client it cannot be driven by was refused (counting against `--max-sessions` like any other session), or a malformed message or another failure ended a session |
 | 2 | serving never started: arguments, key or address |
 | 3 | the client hung up **while a policy call was running**, under any `--max-sessions` |
@@ -53,7 +53,7 @@ from zerowam_protocol.client import RemotePolicy
 with RemotePolicy(
     "127.0.0.1:7100",
     authkey,
-    timeout_s=60.0,  # connect, authenticate, hello, reset, close
+    timeout_s=60.0,  # connect, authenticate, hello (which builds the policy), reset, close
     prompt_timeout_s=600.0,  # set_demonstration: the first one loads the weights
     act_timeout_s=30.0,  # one act
     action_types=("ee",),  # the action types this benchmark executes
@@ -89,7 +89,11 @@ the encoder, and `knobs` itself must be a mapping, because a benchmark reads a k
 The three timeouts are separate because the three calls cost different things: a runtime loads its
 weights inside the first `set_demonstration`, so an act budget of 30 s would fail it, and giving
 every call the prompt's budget instead lets a policy sit in one `act` for ten minutes. Both
-per-call budgets default to `timeout_s`, and each call is bounded by its own alone.
+per-call budgets default to `timeout_s`, and each call is bounded by its own alone. `timeout_s`
+must still cover building the policy: the server imports and constructs `MODULE:CLASS` inside the
+first `hello`, so a runtime that loads its weights in its constructor rather than in the first
+`set_demonstration` needs a `timeout_s` as long as that load. Each budget is a positive, finite
+number of seconds.
 
 Every way the policy can fail — an error reply, a timeout, a hang-up, a malformed message — raises
 `PolicyUnavailable`, and the benchmark decides what it costs the unit.
@@ -189,10 +193,11 @@ record reaches a policy from no client, `RemotePolicy` or not.
 `write` and `read` hold a bundle to one schema: every `frames_<camera>` uint8 RGB `(T, H, W, 3)`
 with one T ≥ 2, `times` float64 `(T,)` and never decreasing, `camera` with exactly the fields
 decision Q13 sets for its `demo_source` and with `w` and `h` the primary camera's own frames',
-and `cameras` naming the `frames_` arrays with the primary camera first. Nothing is ever pickled: an object array is refused. Everything `read` cannot trust -
-a hash that does not match, a missing file, a manifest or an npz that cannot be read, a number
-JSON carries that no double can hold - is a `BundleError`, never an `OSError`, an `OverflowError`
-or numpy's own `ValueError`.
+and `cameras` naming the `frames_` arrays with the primary camera first. Nothing is ever pickled:
+an object array is refused. Everything `read` cannot trust - a hash that does not match, a missing
+file, a manifest or an npz that cannot be read, a number JSON carries that no double can hold - is
+a `BundleError`, never an `OSError`, an `OverflowError` or numpy's own `ValueError`, and so is a
+directory `write` cannot write into.
 
 A model family declares what it reads from a demonstration in its family file's `inputs` block,
 from one vocabulary that binds every family: `inputs.demonstration` holds `video` and may hold

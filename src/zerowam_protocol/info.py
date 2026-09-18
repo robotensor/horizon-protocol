@@ -14,7 +14,9 @@ here knows one).
 | `action_spec` | the space, `conventions.check_action_spec` | Q3 |
 | `cameras` | the **observation** cameras, `{name, role, w, h}` each, in render order | Q3 |
 | `demo_cameras` | the **demonstration**'s channels, the primary one first and the rest in name
-  order; exactly the `frames_` arrays sent | Q4 |
+  order; exactly the `frames_` arrays sent. The order of the rest and the set are checked here;
+  which camera is primary is the manifest's `camera.name`, which `info` does not carry, so
+  `bundle` checks that on the manifest's `cameras` alone | Q4 |
 | `step_limit` | how many actions the unit allows, a positive integer | Q14 |
 | `instruction` | exactly `INSTRUCTION`, on every axis, never task language | Q4 |
 | `demo_text` | optional: the video's own caption, a non-empty string, absent when there is
