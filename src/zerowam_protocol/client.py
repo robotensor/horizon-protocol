@@ -42,15 +42,18 @@ different things:
 
 | Budget | Covers | Why it is its own |
 |---|---|---|
-| `timeout_s` | connecting, authenticating, `hello`, `reset`, `close` | reaching the policy |
+| `timeout_s` | connecting, authenticating, `hello`, `reset`, `close` | reaching and building it |
 | `prompt_timeout_s` | `set_demonstration` | a runtime loads its weights in the first prompt |
 | `act_timeout_s` | `act` | the competition's per-action budget |
 
-`prompt_timeout_s` and `act_timeout_s` default to `timeout_s`, so one number still works. Each
-budget covers both sending the request and receiving the whole reply, and nothing else is counted
-against it. When one runs out the socket is shut down, which unblocks whatever was waiting and
-tells the server its client has gone; the server exits. Giving every call the prompt's budget, as
-a benchmark had to before, let a policy sit in one `act` for as long as loading weights may take.
+`prompt_timeout_s` and `act_timeout_s` default to `timeout_s`, so one number still works. The
+server imports and constructs `MODULE:CLASS` inside the first `hello`, so a runtime that loads its
+weights in its constructor rather than in the first `set_demonstration` needs a `timeout_s` as long
+as that load. Each budget is a positive, finite number of seconds, and covers both sending the
+request and receiving the whole reply; nothing else is counted against it. When one runs out the
+socket is shut down, which unblocks whatever was waiting and tells the server its client has gone;
+the server exits. Giving every call the prompt's budget, as a benchmark had to before, let a policy
+sit in one `act` for as long as loading weights may take.
 
 After an error reply to `reset`, `prompt` or `act` the connection stays usable - the server keeps
 serving. After an error reply to `hello` the policy could not be built and the server has ended

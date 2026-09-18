@@ -257,9 +257,9 @@ adopts one version set once. What a consumer must change:
   is a scale and not a bound: over RoboTwin `click_bell`'s 400 actions the end effector moved under
   half a millimetre from its first pose, over robocasa `OpenDrawer`'s 750 about a millimetre with
   the gripper within 0.014 of the opening it was shown, and every unit ended `failure`. `stubs`
-  says what is left - a creep of about a micrometre per action, the echo following the arm's own
-  settling, and a position-only measure that leaves orientation drift out - so a harness knows what
-  to expect of its smoke epoch. (#15)
+  says what is left - a creep of about a micrometre per action on RoboTwin, the echo following the
+  arm's own settling, and a position-only measure that leaves orientation drift out - so a harness
+  knows what to expect of its smoke epoch. (#15)
 - `RemotePolicy` takes a timeout per kind of call: `timeout_s` still covers connecting,
   authenticating, `hello`, `reset` and `close`, `prompt_timeout_s` covers `set_demonstration` and
   `act_timeout_s` covers one `act`; both default to `timeout_s`, and each call is bounded by its own
@@ -274,9 +274,9 @@ adopts one version set once. What a consumer must change:
   competition's config check and every family loader call this one. (#17)
 - `bundle.write` records `n_frames`, `duration_s` and `fps` in `demo.json`, derived from `times`
   alone by `bundle.frame_timing`: `fps` is `(T - 1) / duration_s`, rounded to 6 decimals, when every
-  interval is within `UNIFORM_RTOL` of the mean, and `null` when the times are uneven, a single
-  frame or span no time. Plan §4.4 lists them and no fork wrote them; `read` refuses values that
-  disagree with the times. (#5)
+  interval is within `UNIFORM_RTOL` of the mean plus `UNIFORM_ULPS` ulps of the times, and `null`
+  when the times are uneven, a single frame or span no time. Plan §4.4 lists them and no fork wrote
+  them; `read` refuses values that disagree with the times. (#5)
 - `zerowam_protocol.conventions`: decision Q3's convention as code. Constants for what every number
   means (`PER_ARM_LAYOUT` `[x, y, z, qw, qx, qy, qz, gripper]`, metres, scalar-first quaternions,
   gripper 0 closed … 1 open, left then right, a single arm declared `right`) and the vocabulary a

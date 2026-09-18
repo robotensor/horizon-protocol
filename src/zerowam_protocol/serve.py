@@ -53,7 +53,9 @@ it cost to build (`policy.Policy`).
 **Exit status.** The process exits as soon as the last session ends, however it ends, without
 waiting for threads the policy started.
 
-- 0, `EXIT_OK`: every session said `close`, hung up between calls or was idle too long.
+- 0, `EXIT_OK`: the last session said `close`, hung up between calls or was idle too long. The
+  status is the last session's ending: a client refused earlier under `--max-sessions` got its
+  error reply and knows, and does not change it.
 - 1, `EXIT_FAILED`: the policy could not be built, a client this policy cannot be driven by was
   refused, a malformed message ended the session, or anything else went wrong (a
   `KeyboardInterrupt` included, which is not answered). A refused client counts against

@@ -160,7 +160,7 @@ policy.set_demonstration(bundle.public_arrays(arrays), info)
 | `instruction` | str | Exactly `"Follow the demonstrated behavior."`, on every axis. Required. Never task metadata. |
 | `demo_text` | non-empty str | Present if and only if the demonstration's own source supplies a caption of that exact video. Today that is only `demo_source == "humangen"` with `humangen.caption: true`, and the value is the pairing file's `human_task_name` for that video. When absent, the key is omitted: never `""` and never `null`. A benchmark never writes a caption of its own, because that would be task language. |
 
-`check_info` refuses a missing key, an `instruction` that is not exactly that sentence, an empty or null `demo_text`, and a `demo_cameras` that does not name exactly the `frames_` arrays the demonstration carries. It never validates a camera or channel name: those are the benchmark's words (Q14).
+`check_info` refuses a missing key, an `instruction` that is not exactly that sentence, an empty or null `demo_text`, and a `demo_cameras` that does not name exactly the `frames_` arrays the demonstration carries or whose cameras after the first are not in ascending name order. Which camera comes first is the manifest's `camera.name`, which `info` does not carry: `bundle.write` and `bundle.read` check it on the manifest's `cameras`, and the fork sends `demo_cameras` equal to that list. It never validates a camera or channel name: those are the benchmark's words (Q14).
 
 ---
 
