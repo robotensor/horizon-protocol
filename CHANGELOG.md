@@ -6,6 +6,30 @@ All notable changes to this distribution. The format follows
 
 ## [Unreleased]
 
+### Breaking: bundle v2, result v2, protocol 3
+
+One contract release, so that every consumer (both forks, zerowam-runtime, zerowam-competition)
+adopts one version set once. What a consumer must change:
+
+- **Bundle v2.**
+  - A fork writes only `frames_<camera>` and `times` in the public arrays; the demonstrator's state
+    and actions (`qpos`, `endpose`, `actions`, `ee_actions`, `states`) go under `private/` (Q4).
+    `bundle.write` and `bundle.read` refuse any other public array.
+  - A fork catches `BundleSchemaError` before `BundleError`: exit 2 for it (fix the writer), exit 4
+    for any other `BundleError` (rebuild the unit).
+  - A reader of `public_arrays` gets `frames_*` and `times` only; nothing may expect `qpos`,
+    `endpose` or `actions` in a demonstration.
+
+### Changed
+
+- A policy is given a demonstration's video and times only (decision Q4): the allow-list is
+  `PUBLIC_PREFIXES = ("frames_",)`, `PUBLIC_NAMES = ("times",)`, and `qpos`, `endpose` and `actions`
+  are no longer public. `bundle.write` and `bundle.read` refuse any other array with the new
+  `BundleSchemaError`, a `BundleError` that names the array and Q4; `public_arrays` keeps allow-listed
+  names only. On `same_as_demo` axes those arrays were the expert's trajectory for the very scene a
+  policy is scored in. (#14)
+- A bundle's arrays are compressed: an uncompressed click_bell unit was 103 MB, compressed 22 MB.
+
 ### Added
 
 - `zerowam_protocol.conventions`: decision Q3's convention as code. Constants for what every number
@@ -33,7 +57,3 @@ All notable changes to this distribution. The format follows
 - `serve --max-sessions N`: one server takes N clients one after another and keeps the policy it
   built. A submission is evaluated over many units, and loading tens of gigabytes of weights per
   unit would cost more than the units do.
-
-### Changed
-
-- A bundle's arrays are compressed: an uncompressed click_bell unit was 103 MB, compressed 22 MB.

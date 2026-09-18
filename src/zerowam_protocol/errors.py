@@ -12,7 +12,23 @@ class PolicySpecError(ValueError):
 
 
 class BundleError(ValueError):
-    """A demonstration bundle that is missing, malformed or does not match its manifest."""
+    """A demonstration bundle that is missing, malformed or does not match its manifest.
+
+    Raised as itself, it says the bytes on disk are not what was written (a hash that does not
+    match, a file missing or unlisted, an npz or a manifest that cannot be read): a fork exits 4 and
+    the unit is rebuilt. `BundleSchemaError`, its subclass, says what was written breaks the schema.
+    """
+
+
+class BundleSchemaError(BundleError):
+    """A bundle, or a demonstration about to be sent, that breaks the bundle schema.
+
+    An array outside the public allow-list, a frame or a time of the wrong shape, an object dtype, a
+    manifest field that is missing or not what its rule says. It is the writer's own bug and a
+    rebuild would repeat it, so a fork exits 2 for it, at write, read or send, and never rebuilds,
+    retries or voids the unit (decision Q4). It is a `BundleError`, and so a `ValueError`: a fork
+    catches it first. The message names what was refused and the rule.
+    """
 
 
 class PolicyUnavailable(RuntimeError):

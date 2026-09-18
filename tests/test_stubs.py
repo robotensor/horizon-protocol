@@ -7,11 +7,15 @@ from protocol_testing import demonstration, observation
 from zerowam_protocol.stubs import ReplayPolicy, ZeroPolicy
 
 
-def test_zero_policy_takes_its_width_from_the_demonstration():
-    arrays, info = demonstration(dims=14)
+def test_zero_policy_takes_its_width_from_the_arrays_it_is_handed():
+    """A fallback no demonstration can feed any more: under Q4 none carries actions or poses."""
+    arrays, info = demonstration()
     policy = ZeroPolicy()
 
-    policy.set_demonstration(arrays, {k: v for k, v in info.items() if k != "action_dim"})
+    policy.set_demonstration(
+        {**arrays, "actions": np.zeros((5, 14))},
+        {k: v for k, v in info.items() if k != "action_dim"},
+    )
     policy.reset(0)
     action = policy.act(observation(dims=14))
 
@@ -20,10 +24,10 @@ def test_zero_policy_takes_its_width_from_the_demonstration():
 
 
 def test_zero_policy_prefers_the_width_info_declares():
-    arrays, info = demonstration(dims=14)
+    arrays, info = demonstration()
     policy = ZeroPolicy()
 
-    policy.set_demonstration(arrays, info)  # info says 16
+    policy.set_demonstration({**arrays, "actions": np.zeros((5, 14))}, info)  # info says 16
 
     assert policy.act(observation())["action"].shape == (16,)
 
@@ -31,7 +35,7 @@ def test_zero_policy_prefers_the_width_info_declares():
 def test_zero_policy_reads_the_width_again_for_every_demonstration():
     """One server serves many units, and the next one may be another benchmark's robot."""
     policy = ZeroPolicy()
-    arrays, _ = demonstration(dims=16)
+    arrays, _ = demonstration()
 
     policy.set_demonstration(arrays, {"action_dim": 16})
     assert policy.act(observation())["action"].shape == (16,)

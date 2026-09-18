@@ -83,10 +83,10 @@ One directory per unit, written once per epoch and handed unchanged to every sub
 
 ```
 <unit_id>/
-  demo.json            public manifest, with a sha256 per file
+  demo.json            manifest, with a sha256 per file; never sent to a policy
   demo.mp4             preview, for people
-  demo_frames.npz      native-rate frames and times: what the policy is given
-  private/             scene restore data, expert trajectory, seed attempts — never sent
+  demo_frames.npz      native-rate frames and times, nothing else: what the policy is given
+  private/             scene restore data, the demonstrator's state and actions — never sent
 ```
 
 ```python
@@ -95,6 +95,13 @@ from zerowam_protocol import bundle
 manifest, arrays = bundle.read("pool/rts-click_bell-000")  # hashes checked
 policy.set_demonstration(bundle.public_arrays(arrays), info)
 ```
+
+A policy is given a demonstration's video, `frames_<camera>`, and its `times`, and nothing else
+(decision Q4): the demonstrator's state and actions (`qpos`, `endpose`, `actions`, `ee_actions`,
+`states`) stay in `private/expert.npz`. The allow-list, `bundle.PUBLIC_PREFIXES` and
+`bundle.PUBLIC_NAMES`, is closed: `bundle.write` and `bundle.read` refuse any other array with
+`BundleSchemaError`, a `BundleError` that a benchmark maps to exit 2 (fix the writer), where any
+other `BundleError` is exit 4 (rebuild the unit).
 
 Video is stored at the benchmark's native frame rate with `times` beside it. Nothing here resamples
 it: one bundle serves every model, and each runtime resamples for itself.
