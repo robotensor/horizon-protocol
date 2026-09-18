@@ -49,6 +49,26 @@ adopts one version set once. What a consumer must change:
     uniform within `bundle.UNIFORM_RTOL` of their mean plus `bundle.UNIFORM_ULPS` ulps of the
     times, so a demonstration timed from a wall clock keeps a rate (with that grid's error in it:
     record times relative to the episode where you can).
+- **Result v2.**
+  - `RESULT_VERSION` is 2 and `result.read` refuses any other: a result written by an older fork is
+    rewritten by rerunning the unit.
+  - `result.write` takes `task_config`, `task_config_sha256`, `fork_commit` and `timing` as
+    required arguments. `timing` holds exactly `setup_s`, `policy_s`, `sim_s` and `total_s`, each a
+    finite number of seconds ≥ 0, on every path (0.0 for a phase the unit never reached).
+  - `demo_sha256` is `bundle.digest(bundle_dir)` and `unit_id` is the manifest's, never the
+    directory name; both are checked (a sha256, a non-empty string).
+  - A fork writes `rollout.mp4` into the output directory before calling `result.write`, which
+    records its sha256 as `rollout_mp4_sha256`; it is not an argument.
+  - `extra` may not name any field of the schema (`result.REQUIRED_KEYS`).
+  - A fork that serves a stub passes `stub_policy="zero"` or `"replay"` (Q4); `served` takes what
+    the server's reply to `hello` says it served.
+  - Every refusal from `zerowam_protocol.result` is a `ValueError`, an `out_dir` that cannot be
+    written included: a fork that maps the class to its harness exit no longer sees an `OSError`.
+  - A reader of `result.json` goes through `result.read`: every field is present (`null` where it
+    does not apply), and a void without a cause, a success or failure with one, a timing key
+    missing or extra, or a changed `rollout.mp4` is refused. Neither `result.json` nor
+    `rollout.mp4` is read through a symlink: a run directory holds its own result and its own
+    video.
 
 ### Changed
 
@@ -68,6 +88,14 @@ adopts one version set once. What a consumer must change:
 
 ### Fixed
 
+- A result's outcome can no longer be overwritten, and results record their provenance (result
+  v2). `extra` was merged last, so `write(outcome="failure", extra={"outcome": "success"})` wrote a
+  success; `read` accepted a void with no cause, a void caused by "model" and a success with
+  `void_cause`. Now `extra` may not name a schema field, and `read` applies every rule `write`
+  does (outcome and `void_cause` per Q6, types, timing). The timing keys are named, `task_config`,
+  `task_config_sha256` and `fork_commit` are recorded, `write` hashes `rollout.mp4` into
+  `rollout_mp4_sha256`, `demo_sha256` is the whole-bundle digest, `unit_id` is required and
+  non-empty, and the optional `stub_policy` (Q4) and `served` fields exist. (#6)
 - `bundle.write` and `bundle.read` enforce the schema they describe, and every read failure is a
   `BundleError`. `write` accepted float64 frames of shape (5, 4, 4) with two timestamps, pickled
   object arrays into the npz, and took `camera={}`; `read` raised `FileNotFoundError` or numpy's

@@ -159,6 +159,25 @@ def write_bundle(out_dir: Path, *, steps: int = 6, **overrides):
     return record, arrays, info, record_arrays
 
 
+def result_fields(**overrides):
+    """What a fork passes `result.write` for a unit that ran to the end, as result v2 has it."""
+    fields = {
+        "unit_id": "robotwin_sim/click_bell-000",
+        "demo_sha256": "a" * 64,
+        "outcome": "success",
+        "task_config": "sim_clean",
+        "task_config_sha256": "1" * 64,
+        "fork_commit": "0" * 40,
+        "timing": {"setup_s": 1.5, "policy_s": 60.0, "sim_s": 120.0, "total_s": 182.0},
+        "steps": 214,
+        "step_limit": 400,
+        "fingerprint_ok": True,
+        "policy_calls": 7,
+    }
+    fields.update(overrides)
+    return fields
+
+
 @dataclass
 class Served:
     """A policy served in its own process, and a client already connected to it."""

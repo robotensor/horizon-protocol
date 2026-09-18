@@ -18,7 +18,7 @@ This page is for someone who adds a benchmark (a fork that writes bundles) or a 
 | P14 | this repo | the input vocabulary | landed: `bundle.DEMONSTRATION_INPUTS`, `bundle.PROMPT_LANGUAGES`, `bundle.check_demonstration_inputs` |
 | P10 | this repo | conformance | pending |
 | P11 | this repo | `info` keys | pending |
-| P4 | this repo | the optional `stub_policy` field in `result.json` | pending |
+| P4 | this repo | the optional `stub_policy` field in `result.json` | landed: `result.write(..., stub_policy="zero" \| "replay")`, checked by `result.read`, with result version 2 |
 | RT3, RT9, RT11, RT16 | RoboTwin fork | exit 2, stub marking, `info` keys, tests | pending |
 | RC1, RC11 | robocasa fork | exit 2, tests | pending |
 | RU9, RU15 | zerowam-runtime | runtime and recipes | pending |
@@ -92,6 +92,7 @@ After an epoch closes, nothing in a bundle is privileged, and whole bundles MAY 
 - `cameras` lists every demonstration camera, `camera.name` first and the rest in ascending name order, and names exactly the `frames_` arrays. `info.demo_cameras` is sent equal to it (§5).
 - Any other `camera` field (a lens `type`, say) is refused: the fields are Q13's, per source.
 - No file of a bundle is a symlink, `demo.json` included: it is the file the digest is taken of, so a link would leave the manifest swappable with every hash still matching. `bundle.read` refuses one (`BundleError`).
+- A run directory holds its own result the same way: `result.read` reads neither `result.json` nor `rollout.mp4` through a symlink (`ValueError`), so one file cannot answer for two units.
 
 ---
 
@@ -201,7 +202,7 @@ Each fork pins its axes' public key sets and observation key sets in tests.
 | Reader | May read | Rule |
 |---|---|---|
 | The fork's `eval run`, serving a submission | `private/scene.json`, `private/scene/` | MUST NOT open `private/expert.npz`. A fork test proves it: an `expert.npz` made unloadable as data (see below) gives the same result. |
-| **`ReplayPolicy`** (`zerowam_protocol.stubs`) | `private/expert.npz`, key `ee_actions`, handed to it by the harness | **The one exception.** A test instrument for the T1 selftest and `--stub-policy replay`. It MUST NOT be served in a scored epoch. A stub run records `stub_policy` in `result.json`, and the competition refuses to score such a result outside a dry run. |
+| **`ReplayPolicy`** (`zerowam_protocol.stubs`) | `private/expert.npz`, key `ee_actions`, handed to it by the harness | **The one exception.** A test instrument for the T1 selftest and `--stub-policy replay`. It MUST NOT be served in a scored epoch. A stub run records `stub_policy` (`zero` or `replay`, `result.STUB_POLICIES`) in `result.json`, and the competition refuses to score such a result outside a dry run. |
 | `demo verify`, audit | everything | organiser tools only |
 | Recipes shipped with a runtime | `private/expert.npz`, and `private/scene/` to re-render views | only on bundles of closed epochs, or on the participant's own `demo make` output |
 | Any policy or runtime being served | nothing | — |

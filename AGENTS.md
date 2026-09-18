@@ -19,7 +19,8 @@ reads the results). A change here is a change to all of them.
 - `conventions.py` — decision Q3 as code: the constants every number follows, `check_action_spec`,
   `check_chunk(a, spec)`, `check_observation`, `arm_slices`, `same_rotation`.
 - `bundle.py` — the demonstration bundle: `demo.json`, `demo_frames.npz`, `private/`.
-- `result.py` — `result.json`: `outcome` (`success`/`failure`/`void`) and `void_cause`.
+- `result.py` — `result.json`: `outcome` (`success`/`failure`/`void`), `void_cause`, and what
+  produced it (the bundle digest, the task config, the fork commit, a stub, what was served).
 - `stubs.py` — `ZeroPolicy` and `ReplayPolicy`, the model-free smoke tests.
 
 The wire, client and serve modules are ported from `robotensor/ICIL-competition-orchestrator`
