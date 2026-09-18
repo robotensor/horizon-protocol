@@ -103,6 +103,14 @@ A policy is given a demonstration's video, `frames_<camera>`, and its `times`, a
 `BundleSchemaError`, a `BundleError` that a benchmark maps to exit 2 (fix the writer), where any
 other `BundleError` is exit 4 (rebuild the unit).
 
+`write` and `read` hold a bundle to one schema: every `frames_<camera>` uint8 RGB `(T, H, W, 3)`
+with one T ≥ 2, `times` float64 `(T,)` and never decreasing, `camera` with exactly the fields
+decision Q13 sets for its `demo_source` and with `w` and `h` the primary camera's own frames',
+and `cameras` naming the `frames_` arrays with the primary camera first. Nothing is ever pickled: an object array is refused. Everything `read` cannot trust -
+a hash that does not match, a missing file, a manifest or an npz that cannot be read, a number
+JSON carries that no double can hold - is a `BundleError`, never an `OSError`, an `OverflowError`
+or numpy's own `ValueError`.
+
 Video is stored at the benchmark's native frame rate with `times` beside it. Nothing here resamples
 it: one bundle serves every model, and each runtime resamples for itself.
 

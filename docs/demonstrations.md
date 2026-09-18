@@ -12,7 +12,7 @@ This page is for someone who adds a benchmark (a fork that writes bundles) or a 
 | Item | Repository | What it adds | Status |
 |---|---|---|---|
 | P12 | this repo | the allow-list | landed: `bundle.write`, `bundle.read` and `public_arrays` |
-| P1 | this repo | `BundleSchemaError` at write and read | landed for the allow-list; the frames, `times` and camera rules are pending |
+| P1 | this repo | `BundleSchemaError` at write and read | landed: the allow-list, object dtypes, the frames and `times` rules, `camera` (Q13) and `cameras`; every read failure is a `BundleError` |
 | P13 | this repo | the check at send | pending |
 | P14 | this repo | the input vocabulary | pending |
 | P10 | this repo | conformance | pending |
@@ -79,6 +79,18 @@ For Zero-WAM this means:
 
 After an epoch closes, nothing in a bundle is privileged, and whole bundles MAY be published.
 
+**The manifest's cameras (Q13, Q4), as `bundle.write` and `bundle.read` check them**
+
+| `demo_source` | `camera` holds exactly |
+|---|---|
+| `expert`, `mimicgen` | `name`, `w`, `h` (pixels), `fovy` (degrees), `pose` = `[x, y, z, qw, qx, qy, qz]`: metres and a unit quaternion (within 1e-3), in the frame the bundle's `action_spec.frame` names |
+| `humangen` | `name`, `w`, `h`, `source`, `video` (non-empty strings: where the video comes from, and which video it is) |
+
+- `camera.name` names a `frames_<camera.name>` array: it is the primary camera.
+- `camera.w` and `camera.h` are that array's own width and height, as `info.cameras`' are an observation's (Q3 C-P3): a lens no frame was rendered through says nothing about the demonstration.
+- `cameras` lists every demonstration camera, `camera.name` first and the rest in ascending name order, and names exactly the `frames_` arrays. `info.demo_cameras` is sent equal to it (§5).
+- Any other `camera` field (a lens `type`, say) is refused: the fields are Q13's, per source.
+
 ---
 
 ## 3. The allow-list
@@ -100,7 +112,7 @@ PUBLIC_NAMES = ("times",)
 | Error | Exit | Meaning (plan §4.3) |
 |---|---|---|
 | `BundleSchemaError`, at write, read or send | **2** | Invalid input (config, bundle schema): stop and fix. It is the fork's own bug, so a rebuild or a retry would repeat it. |
-| Any other `BundleError` (hash, missing file) | 4 | Bundle verification failed: rebuild the unit; void it if the failure repeats. |
+| Any other `BundleError` (a hash that does not match; a missing file or one that is not the bundle's; a `demo.json` or an npz that cannot be read) | 4 | Bundle verification failed: rebuild the unit; void it if the failure repeats. |
 
 A fork catches `BundleSchemaError` before `BundleError`. A `BundleSchemaError` raised by `set_demonstration` inside the rollout MUST pass the rollout's catch-all and exit 2. It is never recorded as a harness void or as Q6's exit 3.
 
