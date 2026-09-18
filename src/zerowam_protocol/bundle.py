@@ -4,7 +4,8 @@ A week's pool is built once, frozen, and handed to every submission, so the bund
 a regeneration - is the thing both sides agree on. It is a directory:
 
     <unit_id>/
-      demo.json            the manifest, including a sha256 per file; never sent to a policy
+      demo.json            the manifest, with a sha256 of every other file; its own sha256 is the
+                           bundle's digest. Never sent to a policy
       demo.mp4             a preview of the demonstration, for people
       demo_frames.npz      the public arrays, frames_<camera> and times, nothing else (Q4)
       private/             never sent to a policy
@@ -16,6 +17,19 @@ a regeneration - is the thing both sides agree on. It is a directory:
 `demo.json` is the contract. `write` fills in the hashes, `read` checks them, and `public_arrays`
 is the only thing a policy ever sees. Everything a policy must not know lives under `private/` and
 is never loaded by the code that talks to a policy.
+
+**One digest covers the whole bundle (bundle version 2).** `demo.json` hashes every other file:
+`files` the public ones, `private_files` every file under `private/`, nested ones included, by path
+from the bundle directory (`private/scene/model.xml.gz`). `digest(bundle_dir)`, the sha256 of
+`demo.json`'s bytes, therefore pins every byte of the unit, the scene a unit is evaluated in
+included: it is what a result's `demo_sha256` and the pool's manifest record. `read` holds the
+directory to it exactly: the bundle holds `demo.json`, the files `files` lists and `private/`, and
+the files under `private/` are exactly those `private_files` lists, each matching its hash; no
+symlink anywhere, `demo.json` itself included, which no hash below would catch. So a private file
+must exist when `write` runs: pass the demonstrator's record as `write(..., expert=arrays)`, which
+writes `private/expert.npz`, and write anything else under `private/` (a scene) before calling
+`write`. A file added afterwards is refused by `read`. Verifying
+reads `expert.npz`'s bytes into a hash and nothing else: it is never parsed or returned.
 
 **What a policy is given (decision Q4, `docs/demonstrations.md`).** A demonstration's video,
 `frames_<camera>`, and its `times`: the allow-list is `PUBLIC_PREFIXES` and `PUBLIC_NAMES`, and it
@@ -53,6 +67,7 @@ import hashlib
 import json
 import math
 import numbers
+import os
 import zipfile
 from collections.abc import Mapping
 from pathlib import Path
@@ -60,7 +75,7 @@ from typing import Any
 
 import numpy as np
 
-from .conventions import UNIT_NORM_TOL, _is_finite
+from .conventions import UNIT_NORM_TOL, _is_finite, check_action_spec
 from .errors import BundleError, BundleSchemaError
 
 __all__ = [
@@ -70,12 +85,16 @@ __all__ = [
     "CAMERA_FIELDS",
     "DEMO_JSON",
     "DEMO_SOURCES",
+    "EXPERT_NPZ",
     "FRAMES_NPZ",
     "PRIVATE_DIR",
     "PREVIEW_MP4",
     "PUBLIC_FILES",
     "PUBLIC_NAMES",
     "PUBLIC_PREFIXES",
+    "REQUIRED_KEYS",
+    "SCENE_JSON",
+    "WRITTEN_KEYS",
     "check_public_arrays",
     "digest",
     "is_public",
@@ -84,19 +103,26 @@ __all__ = [
     "write",
 ]
 
-#: Bumped whenever the layout or the manifest's required keys change.
-BUNDLE_VERSION = 1
+#: Bumped whenever the layout or the manifest's required keys change. 2: the allow-list (Q4), the
+#: schema, `unit_id`, `action_spec` (Q3), `cameras`, and every file hashed, `private/` included.
+BUNDLE_VERSION = 2
 
 DEMO_JSON = "demo.json"
 FRAMES_NPZ = "demo_frames.npz"
 PREVIEW_MP4 = "demo.mp4"
 PRIVATE_DIR = "private"
+#: Where `write(..., private=...)` and `write(..., expert=...)` put what they are given.
+SCENE_JSON = f"{PRIVATE_DIR}/scene.json"
+EXPERT_NPZ = f"{PRIVATE_DIR}/expert.npz"
 #: The files `files` may hash: the public arrays, and the preview when there is one.
 PUBLIC_FILES = (FRAMES_NPZ, PREVIEW_MP4)
 
-#: What every manifest must carry. `files` is filled in by `write`.
+#: What `write` fills in. A caller that passes one is refused: these come from what is on disk.
+WRITTEN_KEYS = ("bundle_version", "files", "private_files")
+#: What every manifest must carry: the caller's keys, and `WRITTEN_KEYS`.
 REQUIRED_KEYS = (
     "bundle_version",
+    "unit_id",
     "axis",
     "benchmark",
     "fork_commit",
@@ -105,11 +131,13 @@ REQUIRED_KEYS = (
     "demo_source",
     "camera",
     "cameras",
+    "action_spec",
     "task_config",
     "task_config_sha256",
     "scene_seed",
     "fingerprint_sha256",
     "files",
+    "private_files",
 )
 
 #: The public allow-list (decision Q4): the only arrays a bundle's npz may hold and a policy is
@@ -131,9 +159,20 @@ _SHA256_HEX = frozenset("0123456789abcdef")
 
 
 def digest(path: str | Path) -> str:
-    """The sha256 of a file, read in chunks so a video does not have to fit in memory."""
+    """The sha256 of a file; of a bundle directory, the bundle's digest.
+
+    A bundle's digest is the sha256 of its `demo.json`, which hashes every other file of the
+    bundle, so the one value covers the whole unit: `digest(d) == digest(d / "demo.json")`. It says
+    which bundle a result was produced on; `read` is what says the files still match it.
+    Files are read in chunks, so a video does not have to fit in memory.
+    """
+    path = Path(path)
+    if path.is_dir():
+        if (path / DEMO_JSON).is_symlink() or not (path / DEMO_JSON).is_file():
+            raise BundleError(f"{path}: no {DEMO_JSON}, so it is no bundle to take the digest of")
+        return _hash_file(path / DEMO_JSON)
     try:
-        return _sha256(Path(path))
+        return _sha256(path)
     except OSError as exc:
         raise BundleError(f"{path}: cannot be read: {exc}") from None
 
@@ -144,23 +183,32 @@ def write(
     manifest: Mapping[str, Any],
     arrays: Mapping[str, np.ndarray],
     private: Mapping[str, Any] | None = None,
+    expert: Mapping[str, np.ndarray] | None = None,
 ) -> dict[str, Any]:
     """Write a bundle and return its manifest, hashes included.
 
     `arrays` holds the demonstration at the benchmark's native rate: `frames_<camera>` (T, H, W, 3)
-    uint8 and `times` (T,) float64 seconds, and nothing else (Q4). `private` is written under
-    `private/scene.json`; files the benchmark puts under `private/` itself are left alone and are
-    not hashed into the manifest, because nothing outside the benchmark reads them.
+    uint8 and `times` (T,) float64 seconds, and nothing else (Q4). `private` is written as
+    `private/scene.json`, and `expert`, the demonstrator's record, as `private/expert.npz`
+    (compressed, never pickled). Whatever else the benchmark puts under `private/` (a scene) must be
+    there before this is called: every file under `private/` is hashed into `private_files` now,
+    and `read` refuses one added later.
 
-    Everything is checked before anything is written: a manifest, an array or a camera that breaks
-    the schema is refused with `BundleSchemaError`, and the directory is left as it was.
+    Everything is checked before anything is written: a manifest, an array, a camera, an
+    `action_spec` (Q3) or a directory that breaks the schema is refused with `BundleSchemaError`,
+    and the directory is left as it was. The keys in `WRITTEN_KEYS` are filled in here and refused
+    from the caller.
     """
     if not isinstance(manifest, Mapping):
         raise BundleSchemaError(f"manifest is a {type(manifest).__name__}, not a mapping")
     if not isinstance(arrays, Mapping):
         raise BundleSchemaError(f"arrays is a {type(arrays).__name__}, not a mapping of names")
-    given = set(manifest) | {"bundle_version", "files"}  # both are filled in here
-    missing = [key for key in REQUIRED_KEYS if key not in given]
+    passed = [key for key in WRITTEN_KEYS if key in manifest]
+    if passed:
+        raise BundleSchemaError(
+            f"manifest passes {', '.join(passed)}, which bundle.write fills in from the files"
+        )
+    missing = [key for key in REQUIRED_KEYS if key not in manifest and key not in WRITTEN_KEYS]
     if missing:
         raise BundleSchemaError(f"manifest is missing {', '.join(missing)}")
     arrays = _as_arrays(arrays)
@@ -173,45 +221,64 @@ def write(
         problems = _camera_problems(manifest, _frame_sizes(arrays), "the frames_ arrays")
     if problems:
         raise BundleSchemaError(f"manifest: {'; '.join(problems)}")
-    record = {key: manifest[key] for key in manifest if key != "files"}
+    record = dict(manifest)
     record["bundle_version"] = BUNDLE_VERSION
     _json_text(record, "manifest")  # refused now, before anything is written
     private_text = None if private is None else _json_text(private, "private")
-
+    expert_arrays = None if expert is None else _checked_expert(expert)
     out = Path(out_dir)
+    _check_directory(out)
+
     (out / PRIVATE_DIR).mkdir(parents=True, exist_ok=True)
     # Compressed: a pool holds a thousand of these, and frames dominate every one of them.
     np.savez_compressed(out / FRAMES_NPZ, **arrays)
     if private_text is not None:
-        (out / PRIVATE_DIR / "scene.json").write_text(private_text)
+        (out / SCENE_JSON).write_text(private_text)
+    if expert_arrays is not None:
+        np.savez_compressed(out / EXPERT_NPZ, **expert_arrays)
 
-    files = {}
-    for name in PUBLIC_FILES:
-        path = out / name
-        if path.exists():
-            files[name] = digest(path)
-    record["files"] = files
+    record["files"] = {name: digest(out / name) for name in PUBLIC_FILES if (out / name).is_file()}
+    record["private_files"] = {
+        name: digest(out / name) for name in _private_paths(out, BundleSchemaError)
+    }
     (out / DEMO_JSON).write_text(_json_text(record, "manifest"))
     return record
 
 
 def read(bundle_dir: str | Path, *, verify: bool = True) -> tuple[dict[str, Any], dict[str, Any]]:
-    """`(manifest, arrays)` of a bundle, with every hash in the manifest checked by default.
+    """`(manifest, arrays)` of a bundle, with every file checked against the manifest by default.
 
     The arrays are the whole npz, which holds allow-listed names only: a bundle with any other
     array is refused with `BundleSchemaError` (Q4). `public_arrays` is what a policy is given.
     Every rule `write` applies is applied again here, so a bundle written by anything else, or
-    changed since, is held to the same schema. `verify=False` skips the hashes, never the schema.
+    changed since, is held to the same schema; a bundle of another `BUNDLE_VERSION` is refused
+    with `BundleSchemaError`. Verifying holds the directory to `demo.json` exactly: no file missing,
+    unlisted, symlinked or changed, `private/` included. `verify=False` skips that, never the
+    schema.
     """
     path = Path(bundle_dir)
+    # The manifest before anything else, and never through a symlink: it is the one file the
+    # bundle's digest is taken of, so a link would let the scene, the seed and the action_spec be
+    # swapped after the pool was frozen, with every hash below still matching.
+    if (path / DEMO_JSON).is_symlink():
+        raise BundleError(
+            f"{path / DEMO_JSON}: a symlink; a bundle holds its own files, and demo.json is the "
+            "file its digest is taken of"
+        )
     manifest = _read_json(path / DEMO_JSON)
     if not isinstance(manifest, dict):
         raise BundleError(f"{path / DEMO_JSON}: manifest is not a JSON object")
     version = manifest.get("bundle_version")
-    if version != BUNDLE_VERSION:
-        raise BundleError(f"bundle version {version!r}; this end reads {BUNDLE_VERSION}")
+    # The type as well as the value: JSON's 2.0 is not the integer `write` fills in, and every
+    # other written key is held to the type it was written with.
+    if type(version) is not int or version != BUNDLE_VERSION:
+        raise BundleSchemaError(
+            f"{path / DEMO_JSON}: bundle version {version!r}; this end reads {BUNDLE_VERSION}: "
+            "rebuild the unit with a fork on this protocol"
+        )
     # What only `write` fills in is checked first: when it is wrong, the manifest was changed.
     files = _checked_files(manifest.get("files"), path / DEMO_JSON)
+    private_files = _checked_private_files(manifest.get("private_files"), path / DEMO_JSON)
     missing = [key for key in REQUIRED_KEYS if key not in manifest]
     if missing:
         raise BundleSchemaError(f"{path / DEMO_JSON}: manifest is missing {', '.join(missing)}")
@@ -219,10 +286,7 @@ def read(bundle_dir: str | Path, *, verify: bool = True) -> tuple[dict[str, Any]
     if problems:
         raise BundleSchemaError(f"{path / DEMO_JSON}: {'; '.join(problems)}")
     if verify:
-        for name, expected in files.items():
-            actual = _hash_file(path / name)
-            if actual != expected:
-                raise BundleError(f"{path / name}: sha256 {actual}, manifest says {expected}")
+        _verify_files(path, files, private_files)
     arrays = _load_npz(path / FRAMES_NPZ)
     problems = _camera_problems(manifest, _frame_sizes(arrays), f"the arrays of {FRAMES_NPZ}")
     if problems:
@@ -314,8 +378,16 @@ def _times_problems(times: np.ndarray) -> list[str]:
 
 
 def _manifest_problems(manifest: Mapping[str, Any]) -> list[str]:
-    """Every problem with the manifest's `demo_source`, `camera` and `cameras` (Q13, Q4)."""
+    """Every problem with the manifest's `unit_id`, `action_spec` (Q3), `demo_source`, `camera` and
+    `cameras` (Q13, Q4)."""
     problems = []
+    unit_id = manifest.get("unit_id")
+    if not (isinstance(unit_id, str) and unit_id.strip()):
+        problems.append(f"unit_id is {unit_id!r}, not the unit's id")
+    try:
+        check_action_spec(manifest.get("action_spec"))
+    except ValueError as exc:
+        problems.append(str(exc))
     source = manifest.get("demo_source")
     fields = CAMERA_FIELDS.get(source) if isinstance(source, str) else None
     if fields is None:
@@ -438,6 +510,111 @@ def _checked_files(files: Any, where: Path) -> dict[str, str]:
     if FRAMES_NPZ not in files:
         raise BundleError(f"{where}: files must hash at least {FRAMES_NPZ}")
     return files
+
+
+def _checked_private_files(private_files: Any, where: Path) -> dict[str, str]:
+    """The `private_files` map, if every path in it is a file path under `private/`."""
+    if not isinstance(private_files, dict):
+        raise BundleError(f"{where}: private_files is {private_files!r}, not {{path: sha256}}")
+    for name, sha in private_files.items():
+        parts = name.split("/") if isinstance(name, str) else []
+        if _escapes(name) or len(parts) < 2 or parts[0] != PRIVATE_DIR or "" in parts[1:]:
+            where_to = "a path outside the bundle" if _escapes(name) else "not under private/"
+            raise BundleError(f"{where}: private_files names {name!r}, {where_to}")
+        if not (isinstance(sha, str) and len(sha) == 64 and set(sha) <= _SHA256_HEX):
+            raise BundleError(f"{where}: private_files[{name!r}] is {sha!r}, not a sha256")
+    return private_files
+
+
+def _verify_files(bundle: Path, files: dict[str, str], private_files: dict[str, str]) -> None:
+    """Hold the directory to the manifest: exactly its files, each with its hash, no symlinks."""
+    try:
+        entries = {entry.name: entry for entry in os.scandir(bundle)}
+    except OSError as exc:
+        raise BundleError(f"{bundle}: cannot be listed: {exc}") from None
+    expected = {DEMO_JSON, PRIVATE_DIR, *files}
+    unlisted = sorted(set(entries) - expected)
+    if unlisted:
+        raise BundleError(
+            f"{bundle}: {', '.join(unlisted)} is not in the manifest; demo.json lists every file "
+            "of a bundle"
+        )
+    private = entries.get(PRIVATE_DIR)
+    if private is None:
+        found = []  # a copy that dropped an empty directory: private_files says whether it was
+    elif private.is_symlink() or not private.is_dir(follow_symlinks=False):
+        raise BundleError(f"{bundle / PRIVATE_DIR}: not a directory of the bundle")
+    else:
+        found = _private_paths(bundle, BundleError)
+    unlisted = sorted(set(found) - set(private_files))
+    missing = sorted(set(private_files) - set(found))
+    if unlisted or missing:
+        raise BundleError(
+            f"{bundle}: private/ holds {unlisted or 'nothing'} that private_files does not list, "
+            f"and lacks {missing or 'nothing'} that it does; every private file is written before "
+            "bundle.write hashes them, and none after"
+        )
+    for name, expected in {**files, **private_files}.items():
+        actual = _hash_file(bundle / name)
+        if actual != expected:
+            raise BundleError(f"{bundle / name}: sha256 {actual}, manifest says {expected}")
+
+
+def _private_paths(bundle: Path, error: type[BundleError]) -> list[str]:
+    """Every file under `private/`, as a path from the bundle directory. No symlink, no device."""
+    found = []
+    pending = [bundle / PRIVATE_DIR]
+    while pending:
+        directory = pending.pop()
+        try:
+            entries = list(os.scandir(directory))
+        except OSError as exc:
+            raise error(f"{directory}: cannot be listed: {exc}") from None
+        for entry in entries:
+            name = Path(entry.path).relative_to(bundle).as_posix()
+            if entry.is_symlink():
+                raise error(f"{bundle / name}: a symlink; a bundle holds its own files only")
+            if entry.is_dir(follow_symlinks=False):
+                pending.append(Path(entry.path))
+            elif entry.is_file(follow_symlinks=False):
+                found.append(name)
+            else:
+                raise error(f"{bundle / name}: not a regular file")
+    return sorted(found)
+
+
+def _check_directory(out: Path) -> None:
+    """Refuse to write a bundle into a directory holding anything that is not one."""
+    if out.is_symlink():
+        raise BundleSchemaError(f"{out}: a symlink; a bundle is written into its own directory")
+    if not out.exists():
+        return
+    if not out.is_dir():
+        raise BundleSchemaError(f"{out}: not a directory")
+    allowed = {DEMO_JSON, PRIVATE_DIR, *PUBLIC_FILES}
+    for entry in os.scandir(out):
+        if entry.name not in allowed:
+            raise BundleSchemaError(
+                f"{out / entry.name}: not part of a bundle, and nothing may sit beside one"
+            )
+        if entry.is_symlink():
+            raise BundleSchemaError(f"{out / entry.name}: a symlink; a bundle holds its own files")
+    if (out / PRIVATE_DIR).exists():
+        _private_paths(out, BundleSchemaError)
+
+
+def _checked_expert(expert: Mapping[str, Any]) -> dict[str, np.ndarray]:
+    """The demonstrator's record as arrays numpy can save without pickling."""
+    if not isinstance(expert, Mapping):
+        raise BundleSchemaError(f"expert is a {type(expert).__name__}, not a mapping of arrays")
+    arrays = _as_arrays(expert)
+    pickled = sorted(name for name, array in arrays.items() if array.dtype.hasobject)
+    if pickled:
+        raise BundleSchemaError(
+            f"expert: {', '.join(map(repr, pickled))} hold Python objects, which would be "
+            "pickled; nothing in a bundle is (object dtypes are refused)"
+        )
+    return arrays
 
 
 def _escapes(name: Any) -> bool:

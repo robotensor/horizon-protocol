@@ -13,6 +13,7 @@ This page is for someone who adds a benchmark (a fork that writes bundles) or a 
 |---|---|---|---|
 | P12 | this repo | the allow-list | landed: `bundle.write`, `bundle.read` and `public_arrays` |
 | P1 | this repo | `BundleSchemaError` at write and read | landed: the allow-list, object dtypes, the frames and `times` rules, `camera` (Q13) and `cameras`; every read failure is a `BundleError` |
+| P2 | this repo | bundle version 2: every file hashed, `private/` included, and `demo.json`'s sha256 as the bundle's digest | landed: `bundle.write(..., expert=...)`, `private_files`, `bundle.digest(bundle_dir)` |
 | P13 | this repo | the check at send | pending |
 | P14 | this repo | the input vocabulary | pending |
 | P10 | this repo | conformance | pending |
@@ -90,6 +91,7 @@ After an epoch closes, nothing in a bundle is privileged, and whole bundles MAY 
 - `camera.w` and `camera.h` are that array's own width and height, as `info.cameras`' are an observation's (Q3 C-P3): a lens no frame was rendered through says nothing about the demonstration.
 - `cameras` lists every demonstration camera, `camera.name` first and the rest in ascending name order, and names exactly the `frames_` arrays. `info.demo_cameras` is sent equal to it (§5).
 - Any other `camera` field (a lens `type`, say) is refused: the fields are Q13's, per source.
+- No file of a bundle is a symlink, `demo.json` included: it is the file the digest is taken of, so a link would leave the manifest swappable with every hash still matching. `bundle.read` refuses one (`BundleError`).
 
 ---
 
@@ -196,11 +198,13 @@ Each fork pins its axes' public key sets and observation key sets in tests.
 
 | Reader | May read | Rule |
 |---|---|---|
-| The fork's `eval run`, serving a submission | `private/scene.json`, `private/scene/` | MUST NOT open `private/expert.npz`. A fork test proves it: an unreadable `expert.npz` gives the same result. |
+| The fork's `eval run`, serving a submission | `private/scene.json`, `private/scene/` | MUST NOT open `private/expert.npz`. A fork test proves it: an `expert.npz` made unloadable as data (see below) gives the same result. |
 | **`ReplayPolicy`** (`zerowam_protocol.stubs`) | `private/expert.npz`, key `ee_actions`, handed to it by the harness | **The one exception.** A test instrument for the T1 selftest and `--stub-policy replay`. It MUST NOT be served in a scored epoch. A stub run records `stub_policy` in `result.json`, and the competition refuses to score such a result outside a dry run. |
 | `demo verify`, audit | everything | organiser tools only |
 | Recipes shipped with a runtime | `private/expert.npz`, and `private/scene/` to re-render views | only on bundles of closed epochs, or on the participant's own `demo make` output |
 | Any policy or runtime being served | nothing | — |
+
+**`bundle.read` and `expert.npz`.** Since bundle version 2, `bundle.read` verifies every file under `private/` against `private_files`: it reads `expert.npz`'s bytes into a sha256 and never parses or returns them. Reading a bundle is therefore not "opening `expert.npz`" in the sense of the rule above, and the fork test that proves the rule makes `expert.npz` unloadable as data, not unreadable as bytes: it makes every attempt to load that path raise (for example by wrapping `numpy.load`) and checks that the result is unchanged. A file whose bytes cannot be read fails `bundle.read` itself, as any damaged bundle does (exit 4).
 
 ---
 
@@ -256,7 +260,7 @@ inputs:
 1. Record every demonstration camera as `frames_<camera>`: uint8 RGB, at native resolution and native rate. Record `times` in seconds.
 2. Set `camera.name` (Q13) to the primary camera. Send `info.demo_cameras` with the primary camera first and the rest in name order, and make the manifest's `cameras` identical.
 3. Send `info.instruction = "Follow the demonstrated behavior."`. Send `demo_text` only if the video's own source supplies its caption.
-4. Write the demonstrator record, if you have one, to `private/expert.npz`, with the required arrays of §7. Produce `endpose` and `ee_actions` with the functions that serve your observation and execute your action (Q3).
+4. Write the demonstrator record, if you have one, to `private/expert.npz`, with the required arrays of §7, by passing it to `bundle.write(..., expert=arrays)`. Write anything else under `private/` (a scene) before calling `bundle.write`: it hashes every private file, and `bundle.read` refuses one added later. Produce `endpose` and `ee_actions` with the functions that serve your observation and execute your action (Q3).
 5. Build `set_demonstration`'s arrays with `bundle.public_arrays`, and nothing else.
 6. Make per-step observations hold only the evaluated robot's own channels: `frames_<name>` for each `name` in `info.cameras`, the array `info.action_spec.state_channel` names, and the native `qpos` (§1.1).
 7. Map `BundleSchemaError` to exit 2, including one that `set_demonstration` raises inside your rollout (let it pass your catch-all). Map other `BundleError`s to exit 4.
@@ -313,7 +317,7 @@ Zero-WAM takes part in neither route under D1 and the current architecture: it h
 | A fork adds the record under a new name (`demo_joints`, `gripper_track`) | The allow-list is closed. Only `frames_*` and `times` pass. | same |
 | A fork puts the record in `demo.json` or `info` | P11's `info` schema and P10's `check_info` fix the demonstration keys and their values; review of the fork's `info` builder against Q14's key list catches the rest. `demo.json` is never sent and never leaves before close. | P10, P11, Q4-8 |
 | A fork smuggles the record into per-step observations | Fork tests pin each axis's observation key set to the evaluated robot's own channels | RT16, RC11 |
-| The harness's evaluation reads `expert.npz` while serving a submission | A fork test with an unreadable `expert.npz` | RT16, RC11 |
+| The harness's evaluation reads `expert.npz` while serving a submission | A fork test with an `expert.npz` made unloadable as data (§8) | RT16, RC11 |
 | `ReplayPolicy` is served as if it were a submission | A stub run records `stub_policy`, and scoring refuses it outside a dry run | RT9, C10 |
 | A new family declares `proprio` in its own family file and ships a check that allows it | The vocabulary lives here, and the competition checks every family file against it | P14, C3 |
 | A runtime reads a key it did not declare (an old array, a caption it said it would not use) | A runtime test with extra arrays and keys | runtime tests (RU9) |

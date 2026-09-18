@@ -27,9 +27,23 @@ adopts one version set once. What a consumer must change:
     `{name, w, h, source, video}` for `humangen` (whose `camera.name` is `human`, the channel).
     `camera.w` and `camera.h` are the primary camera's own frames' width and height, as
     `info.cameras`' are an observation's (Q3): a lens that is not the frames' size is refused.
-  - `bundle.read` raises only `BundleError`s; `bundle.digest` of an unreadable file too. A
-    number `demo.json` carries that no double can hold - a JSON integer is unbounded - is a
-    listed schema problem, never an `OverflowError`.
+  - `bundle.read` raises only `BundleError`s; `bundle.digest` of an unreadable file too. No file of
+    a bundle may be a symlink, `demo.json` included (the file the digest is taken of, which no hash
+    of the bundle covers). A number `demo.json` carries that no double can hold - a JSON integer
+    is unbounded - is a listed schema problem, never an `OverflowError`.
+  - `BUNDLE_VERSION` is 2 and `bundle.read` refuses any other with `BundleSchemaError`: every pool
+    built before is rebuilt.
+  - `demo.json` requires `unit_id` (a reader no longer falls back to the directory name) and
+    `action_spec`, which replaces `action_dims` and must pass `conventions.check_action_spec` (Q3).
+  - A fork passes the demonstrator's record as `bundle.write(..., expert=arrays)` and writes
+    anything else under `private/` before calling `bundle.write`; a file added under `private/`
+    afterwards, or beside the bundle, fails `bundle.read`. `bundle.write` refuses a manifest that
+    passes `bundle_version`, `files` or `private_files`, and a directory holding anything that is
+    not part of a bundle.
+  - A result's `demo_sha256` is `bundle.digest(bundle_dir)`, the sha256 of `demo.json`, not
+    `files["demo_frames.npz"]`.
+  - `bundle_version` is held to its type as well as its value: a manifest carrying `2.0` is
+    refused, like `"2"`.
 
 ### Changed
 
@@ -39,6 +53,12 @@ adopts one version set once. What a consumer must change:
   `BundleSchemaError`, a `BundleError` that names the array and Q4; `public_arrays` keeps allow-listed
   names only. On `same_as_demo` axes those arrays were the expert's trajectory for the very scene a
   policy is scored in. (#14)
+- A bundle's digest covers demo.json and every file under `private/`. `demo.json` records
+  `private_files {path: sha256}` for every file under `private/`, nested ones included;
+  `bundle.digest(bundle_dir)` is the sha256 of `demo.json`'s bytes and so covers the whole unit;
+  `bundle.read` refuses a private file that is changed, missing, unlisted or a symlink. An edited
+  `scene_seed` or `private/scene.json` passed `read` before, although RoboTwin evaluates from them.
+  `BUNDLE_VERSION` is 2, with `unit_id` and `action_spec` (Q3) required in `demo.json`. (#4)
 - A bundle's arrays are compressed: an uncompressed click_bell unit was 103 MB, compressed 22 MB.
 
 ### Fixed

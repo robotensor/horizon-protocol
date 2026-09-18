@@ -25,9 +25,9 @@ implementers follow.
 
 - **Landed in this package:** `zerowam_protocol.conventions` (P9): the constants, `check_action_spec`
   (C-P1), `check_chunk(a, spec)` (C-P2), `check_observation(obs, spec, cameras)` (C-P3),
-  `arm_slices` and `same_rotation`.
-- **Pending in this package:** `demo.json`'s `action_spec`, checked with `check_action_spec`, ships
-  with `BUNDLE_VERSION` 2 (P2); the `info` schema with `action_spec` is P11 and ships with
+  `arm_slices` and `same_rotation`. `demo.json`'s `action_spec`, required and checked with
+  `check_action_spec` by `bundle.write` and `bundle.read`, with `BUNDLE_VERSION` 2 (P2).
+- **Pending in this package:** the `info` schema with `action_spec` is P11 and ships with
   `PROTOCOL_VERSION` 3 (P6); `zerowam_protocol.conformance`, the helpers the forks' checks use, is
   P10.
 - **Pending elsewhere:** the forks' side is RT5, RT10, RT11 (RoboTwin) and RC4, RC5, RC9

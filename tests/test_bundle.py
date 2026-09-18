@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -7,6 +8,7 @@ import numpy as np
 import pytest
 from protocol_testing import (
     TOO_BIG_FOR_A_DOUBLE,
+    aloha_spec,
     demonstration,
     expert,
     manifest,
@@ -147,12 +149,14 @@ def test_a_schema_error_is_a_bundle_error_and_a_value_error():
     assert issubclass(BundleSchemaError, ValueError)
 
 
-def test_private_stays_out_of_the_manifest(tmp_path):
-    record, _, _, _ = write_bundle(tmp_path / "unit")
+def test_private_files_are_hashed_apart_from_the_public_ones(tmp_path):
+    record, _, _, expert_arrays = write_bundle(tmp_path / "unit")
 
-    assert (tmp_path / "unit" / bundle.PRIVATE_DIR / "scene.json").exists()
-    assert (tmp_path / "unit" / bundle.PRIVATE_DIR / "expert.npz").exists()
+    assert (tmp_path / "unit" / bundle.SCENE_JSON).exists()
+    with np.load(tmp_path / "unit" / bundle.EXPERT_NPZ) as data:
+        assert set(data.files) == set(expert_arrays)
     assert all(not name.startswith(bundle.PRIVATE_DIR) for name in record["files"])
+    assert set(record["private_files"]) == {bundle.SCENE_JSON, bundle.EXPERT_NPZ}
 
 
 # -- the schema, at write and at read (P1: #3) ---------------------------------------------------
@@ -477,3 +481,254 @@ def test_check_public_arrays_is_the_array_half_of_the_schema():
         bundle.check_public_arrays({**arrays, "qpos": np.zeros((6, 14))})
     with pytest.raises(BundleSchemaError, match="decreases"):
         bundle.check_public_arrays({**arrays, "times": arrays["times"][::-1].copy()})
+
+
+# -- one digest covers the whole bundle (P2: #4) -------------------------------------------------
+
+
+def test_bundle_version_2_and_nothing_else_is_read(tmp_path):
+    assert bundle.BUNDLE_VERSION == 2
+    record, _, _, _ = write_bundle(tmp_path / "unit")
+    assert record["bundle_version"] == 2
+
+    # 2.0 too: JSON's float is not the integer `write` fills in, and every other written key is
+    # held to its type as well.
+    for version in (1, 3, "2", None, 2.0, True):
+        _edit_manifest(tmp_path / "unit", lambda r, v=version: r.update(bundle_version=v))
+        with pytest.raises(
+            BundleSchemaError, match=f"bundle version {version!r}; this end reads 2"
+        ):
+            bundle.read(tmp_path / "unit")
+
+
+def _with_scene(out):
+    """A RoboCasa-like scene written under private/ before bundle.write, as the fork does."""
+    scene = out / bundle.PRIVATE_DIR / "scene"
+    scene.mkdir(parents=True)
+    (scene / "model.xml.gz").write_bytes(b"<mujoco/>")
+    np.savez_compressed(scene / "states.npz", states=np.zeros((1, 9)))
+
+
+def test_write_hashes_every_file_under_private_nested_ones_included(tmp_path):
+    unit = tmp_path / "unit"
+    _with_scene(unit)
+    arrays, _ = demonstration()
+
+    record = bundle.write(
+        unit, manifest=manifest(), arrays=arrays, private={"seed": 1}, expert=expert()
+    )
+
+    assert record["private_files"] == {
+        name: bundle.digest(unit / name)
+        for name in (
+            "private/expert.npz",
+            "private/scene.json",
+            "private/scene/model.xml.gz",
+            "private/scene/states.npz",
+        )
+    }
+    assert bundle.read(unit)[0] == record
+
+
+@pytest.mark.parametrize(
+    "name", ["private/scene.json", "private/expert.npz", "private/scene/states.npz"]
+)
+def test_read_refuses_a_changed_private_file(tmp_path, name):
+    unit = tmp_path / "unit"
+    _with_scene(unit)
+    arrays, _ = demonstration()
+    bundle.write(unit, manifest=manifest(), arrays=arrays, private={"seed": 1}, expert=expert())
+    (unit / name).write_bytes((unit / name).read_bytes() + b"\0")
+
+    with pytest.raises(BundleError, match="sha256") as refused:
+        bundle.read(unit)
+    assert type(refused.value) is BundleError
+    assert name in str(refused.value)
+
+
+def test_read_refuses_a_missing_private_file(tmp_path):
+    write_bundle(tmp_path / "unit")
+    (tmp_path / "unit" / bundle.EXPERT_NPZ).unlink()
+
+    with pytest.raises(BundleError, match=r"lacks \['private/expert.npz'\]"):
+        bundle.read(tmp_path / "unit")
+
+
+def test_a_private_file_written_after_bundle_write_is_refused(tmp_path):
+    """Both forks write expert.npz after write today: then nothing hashes it, and read says so."""
+    unit = tmp_path / "unit"
+    arrays, _ = demonstration()
+    bundle.write(unit, manifest=manifest(), arrays=arrays, private={"seed": 1})
+    np.savez_compressed(unit / bundle.EXPERT_NPZ, **expert())
+
+    with pytest.raises(BundleError, match=r"\['private/expert.npz'\] that private_files does not"):
+        bundle.read(unit)
+
+
+def test_read_refuses_a_symlink_under_private(tmp_path):
+    write_bundle(tmp_path / "unit")
+    (tmp_path / "elsewhere.json").write_text("{}")
+    (tmp_path / "unit" / bundle.PRIVATE_DIR / "linked.json").symlink_to(tmp_path / "elsewhere.json")
+
+    with pytest.raises(BundleError, match="symlink"):
+        bundle.read(tmp_path / "unit")
+
+
+def test_read_refuses_a_symlinked_demo_json(tmp_path):
+    """The one file no hash in the bundle covers: the digest is taken of it (#4).
+
+    A link would let the scene, the seed and the action_spec be swapped after the pool was frozen,
+    with `files` and `private_files` still matching every byte they hash.
+    """
+    write_bundle(tmp_path / "unit")
+    elsewhere = tmp_path / "elsewhere.json"
+    (tmp_path / "unit" / bundle.DEMO_JSON).rename(elsewhere)
+    (tmp_path / "unit" / bundle.DEMO_JSON).symlink_to(elsewhere)
+    swapped = json.loads(elsewhere.read_text())
+    swapped["scene_seed"] = 4242
+    elsewhere.write_text(json.dumps(swapped))
+
+    with pytest.raises(BundleError, match="symlink") as refused:
+        bundle.read(tmp_path / "unit")
+    assert type(refused.value) is BundleError
+    with pytest.raises(BundleError, match="no demo.json"):  # as the digest already refused it
+        bundle.digest(tmp_path / "unit")
+
+
+def test_read_refuses_a_file_beside_the_bundle_that_demo_json_does_not_list(tmp_path):
+    write_bundle(tmp_path / "unit")
+    (tmp_path / "unit" / "notes.txt").write_text("hello")
+
+    with pytest.raises(BundleError, match="notes.txt is not in the manifest"):
+        bundle.read(tmp_path / "unit")
+
+
+def test_a_bundle_with_no_private_file_survives_a_copy_that_drops_empty_directories(tmp_path):
+    arrays, _ = demonstration()
+    record = bundle.write(tmp_path / "unit", manifest=manifest(), arrays=arrays)
+    assert record["private_files"] == {}
+    (tmp_path / "unit" / bundle.PRIVATE_DIR).rmdir()
+
+    assert bundle.read(tmp_path / "unit")[0] == record
+    (tmp_path / "unit" / bundle.PRIVATE_DIR).write_text("not a directory")
+    with pytest.raises(BundleError, match="not a directory of the bundle"):
+        bundle.read(tmp_path / "unit")
+
+
+def test_read_refuses_a_private_path_outside_private(tmp_path):
+    write_bundle(tmp_path / "unit")
+    for name, words in [
+        ("private/../demo.json", "outside the bundle"),
+        ("demo_frames.npz", "not under private/"),
+        ("private/", "not under private/"),
+    ]:
+        _edit_manifest(
+            tmp_path / "unit", lambda r, n=name: r["private_files"].update({n: "0" * 64})
+        )
+        with pytest.raises(BundleError, match=words):
+            bundle.read(tmp_path / "unit", verify=False)
+        _edit_manifest(tmp_path / "unit", lambda r, n=name: r["private_files"].pop(n))
+
+
+def test_verify_false_skips_the_files_but_never_the_schema(tmp_path):
+    write_bundle(tmp_path / "unit")
+    (tmp_path / "unit" / bundle.SCENE_JSON).write_text("{}")
+
+    bundle.read(tmp_path / "unit", verify=False)
+    _edit_manifest(tmp_path / "unit", lambda r: r.update(cameras=["left_wrist", "head"]))
+    with pytest.raises(BundleSchemaError, match="primary camera"):
+        bundle.read(tmp_path / "unit", verify=False)
+
+
+def test_write_refuses_a_directory_that_holds_anything_else(tmp_path):
+    unit = tmp_path / "unit"
+    unit.mkdir()
+    (unit / "attempts.json").write_text("[]")
+    arrays, _ = demonstration()
+
+    with pytest.raises(BundleSchemaError, match="attempts.json: not part of a bundle"):
+        bundle.write(unit, manifest=manifest(), arrays=arrays)
+    assert not (unit / bundle.DEMO_JSON).exists()
+
+
+def test_write_refuses_a_symlink_under_private(tmp_path):
+    unit = tmp_path / "unit"
+    (unit / bundle.PRIVATE_DIR).mkdir(parents=True)
+    (tmp_path / "states.npz").write_bytes(b"x")
+    (unit / bundle.PRIVATE_DIR / "states.npz").symlink_to(tmp_path / "states.npz")
+    arrays, _ = demonstration()
+
+    with pytest.raises(BundleSchemaError, match="symlink"):
+        bundle.write(unit, manifest=manifest(), arrays=arrays)
+    assert not (unit / bundle.DEMO_JSON).exists()
+
+
+def test_the_bundle_digest_is_the_sha256_of_demo_json(tmp_path):
+    write_bundle(tmp_path / "unit")
+    expected = hashlib.sha256((tmp_path / "unit" / bundle.DEMO_JSON).read_bytes()).hexdigest()
+
+    assert bundle.digest(tmp_path / "unit") == expected
+    assert bundle.digest(tmp_path / "unit" / bundle.DEMO_JSON) == expected
+    with pytest.raises(BundleError, match="no demo.json"):
+        bundle.digest(tmp_path)  # a directory that is no bundle
+
+
+def test_a_changed_scene_seed_changes_the_digest(tmp_path):
+    """demo.json is not hashed inside itself: the digest, recorded elsewhere, is what moves."""
+    write_bundle(tmp_path / "unit")
+    before = bundle.digest(tmp_path / "unit")
+    _edit_manifest(tmp_path / "unit", lambda r: r.update(scene_seed=12345))
+
+    assert bundle.digest(tmp_path / "unit") != before
+
+
+@pytest.mark.parametrize(
+    "changes, words",
+    [
+        ({"unit_id": ""}, "unit_id is ''"),
+        ({"unit_id": 7}, "unit_id is 7"),
+        ({"action_spec": {**aloha_spec(), "frame": "base"}}, "action_spec is not Q3's"),
+        ({"action_spec": {**aloha_spec(), "action_dim": 14}}, "action_dim is 14"),
+        ({"action_spec": None}, "action_spec is not Q3's"),
+    ],
+)
+def test_unit_id_and_action_spec_are_checked_at_write_and_read(tmp_path, changes, words):
+    arrays, _ = demonstration()
+    with pytest.raises(BundleSchemaError, match=words):
+        bundle.write(tmp_path / "a", manifest=manifest(**changes), arrays=arrays)
+
+    write_bundle(tmp_path / "b")
+    _edit_manifest(tmp_path / "b", lambda r: r.update(changes))
+    with pytest.raises(BundleSchemaError, match=words):
+        bundle.read(tmp_path / "b")
+
+
+@pytest.mark.parametrize("key", ["unit_id", "action_spec"])
+def test_unit_id_and_action_spec_are_required(tmp_path, key):
+    arrays, _ = demonstration()
+    incomplete = manifest()
+    del incomplete[key]
+
+    with pytest.raises(BundleSchemaError, match=f"missing {key}"):
+        bundle.write(tmp_path / "unit", manifest=incomplete, arrays=arrays)
+
+
+@pytest.mark.parametrize("key", ["bundle_version", "files", "private_files"])
+def test_write_refuses_a_key_it_fills_in(tmp_path, key):
+    arrays, _ = demonstration()
+
+    with pytest.raises(BundleSchemaError, match=f"passes {key}"):
+        bundle.write(tmp_path / "unit", manifest=manifest(**{key: {}}), arrays=arrays)
+
+
+def test_the_demonstrators_record_is_never_pickled(tmp_path):
+    arrays, _ = demonstration()
+
+    with pytest.raises(BundleSchemaError, match="'states' hold Python objects"):
+        bundle.write(
+            tmp_path / "unit",
+            manifest=manifest(),
+            arrays=arrays,
+            expert={"states": np.array([{"a": 1}], dtype=object)},
+        )
+    assert not (tmp_path / "unit").exists()
