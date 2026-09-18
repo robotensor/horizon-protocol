@@ -260,13 +260,15 @@ class Session:
             if not ok:
                 raise _SessionOver(EXIT_FAILED)
             self.policy, self.action_type = policy, policy.action_type
-            self.observe_every = observe.checked_every(getattr(policy, "observe_every", 0))
-            log.info(
-                "serving %s, action_type %r, observe_every %d",
-                self.policy_spec,
-                self.action_type,
-                self.observe_every,
-            )
+        # Every hello, not only the one that built the policy: a server with --max-sessions keeps
+        # its policy across clients, and each client must hear how often to observe.
+        self.observe_every = observe.checked_every(getattr(self.policy, "observe_every", 0))
+        log.info(
+            "serving %s, action_type %r, observe_every %d",
+            self.policy_spec,
+            self.action_type,
+            self.observe_every,
+        )
         self._send(
             "ok",
             {
