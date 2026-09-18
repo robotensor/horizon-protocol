@@ -48,3 +48,39 @@ class NotAPolicy:
 
     def act(self, observation):
         return {"action": np.zeros(16)}
+
+
+class ObservingPolicy:
+    """Asks for a frame every 4 actions, answers chunks of 8, and reports what it was sent."""
+
+    action_type = "ee"
+    observe_every = 4
+
+    def reset(self, seed: int) -> None:
+        pass
+
+    def set_demonstration(self, arrays, info) -> None:
+        pass
+
+    def act(self, observation):
+        return {
+            "action": np.zeros((8, 16)),
+            "seen_shape": np.asarray(observation["frames_head"].shape),
+            "seen_first": np.asarray(observation["qpos"][:, 0]),
+        }
+
+
+class NegativeObservePolicy:
+    """Declares an observation cadence that means nothing, so it cannot be built."""
+
+    action_type = "ee"
+    observe_every = -1
+
+    def reset(self, seed: int) -> None:
+        pass
+
+    def set_demonstration(self, arrays, info) -> None:
+        pass
+
+    def act(self, observation):
+        return {"action": np.zeros(16)}

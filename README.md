@@ -30,11 +30,16 @@ float numpy arrays.
 from zerowam_protocol.client import RemotePolicy
 
 with RemotePolicy("127.0.0.1:7100", authkey, timeout_s=60.0, log_file="policy.log") as policy:
-    policy.hello()  # protocol, action_type, policy
+    policy.hello()  # protocol, action_type, observe_every, policy
     policy.set_demonstration(demo_arrays, info)  # one demonstration, named arrays
     policy.reset(seed)
     action = policy.act(observation)["action"]  # (A,) or a chunk (H, A)
 ```
+
+A policy that must see what its own chunk did declares `observe_every = N`. The benchmark then
+records an observation after every N-th action and sends them, stacked, with the next `act`
+(`zerowam_protocol.observe.stack`); the first `act` of an episode carries the initial observation
+alone. A chunk whose length is not a multiple of N is refused (`observe.check_chunk`).
 
 Every way the policy can fail — an error reply, a timeout, a hang-up, a malformed message — raises
 `PolicyUnavailable`, and the benchmark decides what it costs the unit.

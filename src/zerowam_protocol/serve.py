@@ -12,7 +12,7 @@ libraries included) are appended to that file, and its tail travels with every e
 
 **Lifecycle.** The server listens and accepts one authenticated client at a time. The policy is
 built on the first `hello` - `MODULE:CLASS` imported and constructed with the `--policy-arg`
-values - and the reply carries `protocol`, `action_type` and `policy`. From
+values - and the reply carries `protocol`, `action_type`, `observe_every` and `policy`. From
 then on each `reset`, `prompt` and `act` calls the policy once and answers `ok` or `action`.
 
 **Failure.** An exception from the policy is logged and answered with an `error` reply (`type`,
@@ -59,7 +59,7 @@ from typing import Any
 
 import numpy as np
 
-from . import logs, wire
+from . import logs, observe, wire
 from .errors import PolicySpecError, WireError
 from .policy import ACTION_TYPES
 
@@ -116,6 +116,10 @@ def build_policy(spec: str, kwargs: Mapping[str, Any] | None = None) -> Any:
     for method in ("reset", "set_demonstration", "act"):
         if not callable(getattr(policy, method, None)):
             problems.append(f"it has no {method}() method")
+    try:
+        observe.checked_every(getattr(policy, "observe_every", 0))
+    except ValueError as exc:
+        problems.append(str(exc))
     if problems:
         raise TypeError(f"{spec} is not a Policy: {'; '.join(problems)}")
     return policy
@@ -207,6 +211,7 @@ class Session:
         self.log_file = log_file
         self.policy: Any = None
         self.action_type: str | None = None
+        self.observe_every = 0
         self.watch = _HangupWatch(conn)
 
     def run(self) -> int:
@@ -255,12 +260,19 @@ class Session:
             if not ok:
                 raise _SessionOver(EXIT_FAILED)
             self.policy, self.action_type = policy, policy.action_type
-            log.info("serving %s, action_type %r", self.policy_spec, self.action_type)
+            self.observe_every = observe.checked_every(getattr(policy, "observe_every", 0))
+            log.info(
+                "serving %s, action_type %r, observe_every %d",
+                self.policy_spec,
+                self.action_type,
+                self.observe_every,
+            )
         self._send(
             "ok",
             {
                 "protocol": wire.PROTOCOL_VERSION,
                 "action_type": self.action_type,
+                "observe_every": self.observe_every,
                 "policy": self.policy_spec,
             },
         )

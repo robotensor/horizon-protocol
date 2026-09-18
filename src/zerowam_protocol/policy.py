@@ -13,6 +13,10 @@ values, and then, for as long as its one client is connected:
   `(A,)` or a chunk of shape `(H, A)`, in the space `action_type` names.
 - `close()`, if the policy has it, is called when the client says `close`.
 
+A policy that needs to see what its chunk did declares `observe_every = N`: the benchmark then
+records an observation after every N-th action of a chunk and sends them all, stacked, with the
+next `act`. Absent, it is 0, and `act` carries the current observation only. `observe` has the rule.
+
 Arrays arrive read-only: copy one before changing it in place. Arrays go back as bool, integer or
 float numpy arrays; anything else, object arrays above all, is refused.
 
@@ -38,11 +42,14 @@ ACTION_TYPES = ("qpos", "ee")
 class Policy(Protocol):
     """A policy the server can serve.
 
-    `close(self) -> None` is optional and not part of the check.
+    `close(self) -> None` and `observe_every` are optional and not part of the check.
     """
 
     #: `"qpos"` or `"ee"`, sent to the client in the reply to `hello`.
     action_type: str
+    #: Optional: record an observation every N actions of a chunk and send them with the next
+    #: `act` (`zerowam_protocol.observe`). 0, or absent, is one observation per `act`.
+    observe_every: int
 
     def reset(self, seed: int) -> None: ...
 
