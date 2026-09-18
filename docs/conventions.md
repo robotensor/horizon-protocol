@@ -271,7 +271,8 @@ Any pose array in a bundle (`endpose`, `ee_actions`) follows §3-§4, and `demo.
 the observation state channel and execute the action (§8).
 
 `demo.json` `camera.pose` (an `expert` or `mimicgen` demonstration's camera) is a position in
-metres plus a unit quaternion `(qw, qx, qy, qz)` in the frame `action_spec.frame` names (RoboTwin
+metres plus a unit quaternion `(qw, qx, qy, qz)`, written `[x, y, z, qw, qx, qy, qz]` like a
+`base_poses` entry, in the frame `action_spec.frame` names (RoboTwin
 `world`; RoboCasa `robot_base`, site `robot0_right_center`). Only that frame is unified: the
 camera's own axis convention (which axis looks forward, which is up) is the simulator's, SAPIEN and
 MuJoCo differ, and a consumer MUST NOT assume one.

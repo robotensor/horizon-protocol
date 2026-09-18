@@ -22,33 +22,61 @@ is never loaded by the code that talks to a policy.
 is closed. The demonstrator's record - any per-step state, command, contact or success signal of
 whoever performed the demonstration (`qpos`, `endpose`, `actions`, `ee_actions`, `states`, ...) -
 is never public: on a `same_as_demo` axis it would be the answer key for the scene a policy is
-scored in. A benchmark that records it writes it under `private/`. `write` and `read` refuse any
-other array in `demo_frames.npz` with `BundleSchemaError` (a fork exits 2 for it, never 4), and
-`public_arrays` keeps only allow-listed names.
+scored in. A benchmark that records it writes it under `private/`.
+
+**The schema, checked alike by `write` and `read`** (`check_public_arrays` is its array half):
+
+- the public arrays are allow-listed names only (Q4) and never Python objects, so nothing is ever
+  pickled: `np.load` runs with `allow_pickle=False`, and an object dtype is refused before it is
+  written or loaded;
+- every `frames_<camera>` is uint8 RGB `(T, H, W, 3)`, all with the same T >= 2, and `times` is
+  float64 `(T,)`, finite and never decreasing (Q4);
+- `camera` carries exactly the fields decision Q13 sets for the `demo_source`: `{name, w, h, fovy,
+  pose}` for `expert` and `mimicgen`, with `pose` = `[x, y, z, qw, qx, qy, qz]` (metres, a unit
+  quaternion, in the frame the bundle's `action_spec` names), and `{name, w, h, source, video}`
+  for `humangen`; `w` and `h` are the primary camera's own frames' width and height, held to them
+  as `info.cameras` is held to an observation's (Q3);
+- `cameras` lists the demonstration cameras, the primary one (`camera.name`) first and the rest in
+  ascending name order, and names exactly the `frames_` arrays (Q4, Q13).
+
+**Errors.** A schema problem is `BundleSchemaError`, at write and at read: the writer is wrong and a
+rebuild repeats it, so a fork exits 2. Anything else `read` finds - a manifest or an npz that cannot
+be read, a missing file, a hash that does not match, a `files` entry that is not one of the
+bundle's own files - is a plain `BundleError`: the bytes are not what was written, and a fork exits
+4. Nothing reaches the caller as an `OSError`, a `KeyError` or numpy's own `ValueError`. Every
+message names what was refused and the rule.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import math
+import numbers
+import zipfile
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
+from .conventions import UNIT_NORM_TOL, _is_finite
 from .errors import BundleError, BundleSchemaError
 
 __all__ = [
     "BUNDLE_VERSION",
     "BundleError",
     "BundleSchemaError",
+    "CAMERA_FIELDS",
     "DEMO_JSON",
+    "DEMO_SOURCES",
     "FRAMES_NPZ",
     "PRIVATE_DIR",
     "PREVIEW_MP4",
+    "PUBLIC_FILES",
     "PUBLIC_NAMES",
     "PUBLIC_PREFIXES",
+    "check_public_arrays",
     "digest",
     "is_public",
     "public_arrays",
@@ -63,6 +91,8 @@ DEMO_JSON = "demo.json"
 FRAMES_NPZ = "demo_frames.npz"
 PREVIEW_MP4 = "demo.mp4"
 PRIVATE_DIR = "private"
+#: The files `files` may hash: the public arrays, and the preview when there is one.
+PUBLIC_FILES = (FRAMES_NPZ, PREVIEW_MP4)
 
 #: What every manifest must carry. `files` is filled in by `write`.
 REQUIRED_KEYS = (
@@ -74,6 +104,7 @@ REQUIRED_KEYS = (
     "category",
     "demo_source",
     "camera",
+    "cameras",
     "task_config",
     "task_config_sha256",
     "scene_seed",
@@ -86,16 +117,25 @@ REQUIRED_KEYS = (
 PUBLIC_PREFIXES = ("frames_",)
 PUBLIC_NAMES = ("times",)
 
+#: Who performed a demonstration: RoboTwin's scripted expert, a MimicGen trial, a HumanGen video.
+DEMO_SOURCES = ("expert", "mimicgen", "humangen")
+#: The fields of `camera`, per `demo_source` (decision Q13). Exactly these, no more.
+CAMERA_FIELDS = {
+    "expert": ("name", "w", "h", "fovy", "pose"),
+    "mimicgen": ("name", "w", "h", "fovy", "pose"),
+    "humangen": ("name", "w", "h", "source", "video"),
+}
+
 _CHUNK = 1 << 20
+_SHA256_HEX = frozenset("0123456789abcdef")
 
 
 def digest(path: str | Path) -> str:
     """The sha256 of a file, read in chunks so a video does not have to fit in memory."""
-    sha = hashlib.sha256()
-    with open(path, "rb") as handle:
-        while chunk := handle.read(_CHUNK):
-            sha.update(chunk)
-    return sha.hexdigest()
+    try:
+        return _sha256(Path(path))
+    except OSError as exc:
+        raise BundleError(f"{path}: cannot be read: {exc}") from None
 
 
 def write(
@@ -108,39 +148,50 @@ def write(
     """Write a bundle and return its manifest, hashes included.
 
     `arrays` holds the demonstration at the benchmark's native rate: `frames_<camera>` (T, H, W, 3)
-    uint8 and `times` (T,) float seconds, and nothing else (Q4): any other name is refused with
-    `BundleSchemaError`. `private` is written under `private/scene.json`; files the benchmark puts
-    under `private/` itself are left alone and are not hashed into the manifest, because nothing
-    outside the benchmark reads them.
+    uint8 and `times` (T,) float64 seconds, and nothing else (Q4). `private` is written under
+    `private/scene.json`; files the benchmark puts under `private/` itself are left alone and are
+    not hashed into the manifest, because nothing outside the benchmark reads them.
+
+    Everything is checked before anything is written: a manifest, an array or a camera that breaks
+    the schema is refused with `BundleSchemaError`, and the directory is left as it was.
     """
-    out = Path(out_dir)
-    (out / PRIVATE_DIR).mkdir(parents=True, exist_ok=True)
+    if not isinstance(manifest, Mapping):
+        raise BundleSchemaError(f"manifest is a {type(manifest).__name__}, not a mapping")
+    if not isinstance(arrays, Mapping):
+        raise BundleSchemaError(f"arrays is a {type(arrays).__name__}, not a mapping of names")
     given = set(manifest) | {"bundle_version", "files"}  # both are filled in here
     missing = [key for key in REQUIRED_KEYS if key not in given]
     if missing:
-        raise BundleError(f"manifest is missing {', '.join(missing)}")
-    if not any(name.startswith("frames_") for name in arrays):
-        raise BundleError("a demonstration needs at least one frames_<camera> array")
-    if "times" not in arrays:
-        raise BundleError("a demonstration needs a times array")
-    _refuse_private(arrays, "arrays")
-
-    # Compressed: a pool holds a thousand of these, and frames dominate every one of them.
-    np.savez_compressed(
-        out / FRAMES_NPZ, **{name: np.asarray(value) for name, value in arrays.items()}
-    )
-    if private is not None:
-        _write_json(out / PRIVATE_DIR / "scene.json", private)
-
+        raise BundleSchemaError(f"manifest is missing {', '.join(missing)}")
+    arrays = _as_arrays(arrays)
+    check_public_arrays(arrays)
+    # The manifest's own fields first and alone, as `read` checks them: `_camera_problems` looks
+    # `camera.name` up in the frames, and a name that is not a string (a list, a dict) is unhashable
+    # - a problem `_manifest_problems` has already listed, and never a TypeError out of `write`.
+    problems = _manifest_problems(manifest)
+    if not problems:
+        problems = _camera_problems(manifest, _frame_sizes(arrays), "the frames_ arrays")
+    if problems:
+        raise BundleSchemaError(f"manifest: {'; '.join(problems)}")
     record = {key: manifest[key] for key in manifest if key != "files"}
     record["bundle_version"] = BUNDLE_VERSION
+    _json_text(record, "manifest")  # refused now, before anything is written
+    private_text = None if private is None else _json_text(private, "private")
+
+    out = Path(out_dir)
+    (out / PRIVATE_DIR).mkdir(parents=True, exist_ok=True)
+    # Compressed: a pool holds a thousand of these, and frames dominate every one of them.
+    np.savez_compressed(out / FRAMES_NPZ, **arrays)
+    if private_text is not None:
+        (out / PRIVATE_DIR / "scene.json").write_text(private_text)
+
     files = {}
-    for name in (FRAMES_NPZ, PREVIEW_MP4):
+    for name in PUBLIC_FILES:
         path = out / name
         if path.exists():
             files[name] = digest(path)
     record["files"] = files
-    _write_json(out / DEMO_JSON, record)
+    (out / DEMO_JSON).write_text(_json_text(record, "manifest"))
     return record
 
 
@@ -149,6 +200,8 @@ def read(bundle_dir: str | Path, *, verify: bool = True) -> tuple[dict[str, Any]
 
     The arrays are the whole npz, which holds allow-listed names only: a bundle with any other
     array is refused with `BundleSchemaError` (Q4). `public_arrays` is what a policy is given.
+    Every rule `write` applies is applied again here, so a bundle written by anything else, or
+    changed since, is held to the same schema. `verify=False` skips the hashes, never the schema.
     """
     path = Path(bundle_dir)
     manifest = _read_json(path / DEMO_JSON)
@@ -157,20 +210,23 @@ def read(bundle_dir: str | Path, *, verify: bool = True) -> tuple[dict[str, Any]
     version = manifest.get("bundle_version")
     if version != BUNDLE_VERSION:
         raise BundleError(f"bundle version {version!r}; this end reads {BUNDLE_VERSION}")
+    # What only `write` fills in is checked first: when it is wrong, the manifest was changed.
+    files = _checked_files(manifest.get("files"), path / DEMO_JSON)
     missing = [key for key in REQUIRED_KEYS if key not in manifest]
     if missing:
-        raise BundleError(f"{path / DEMO_JSON}: manifest is missing {', '.join(missing)}")
-    files = manifest.get("files")
-    if not isinstance(files, dict) or FRAMES_NPZ not in files:
-        raise BundleError(f"{path / DEMO_JSON}: files must hash at least {FRAMES_NPZ}")
+        raise BundleSchemaError(f"{path / DEMO_JSON}: manifest is missing {', '.join(missing)}")
+    problems = _manifest_problems(manifest)
+    if problems:
+        raise BundleSchemaError(f"{path / DEMO_JSON}: {'; '.join(problems)}")
     if verify:
         for name, expected in files.items():
-            actual = digest(path / name)
+            actual = _hash_file(path / name)
             if actual != expected:
                 raise BundleError(f"{path / name}: sha256 {actual}, manifest says {expected}")
-    with np.load(path / FRAMES_NPZ, allow_pickle=False) as data:
-        _refuse_private(data.files, str(path / FRAMES_NPZ))
-        arrays = {name: data[name] for name in data.files}
+    arrays = _load_npz(path / FRAMES_NPZ)
+    problems = _camera_problems(manifest, _frame_sizes(arrays), f"the arrays of {FRAMES_NPZ}")
+    if problems:
+        raise BundleSchemaError(f"{path / DEMO_JSON}: {'; '.join(problems)}")
     return manifest, arrays
 
 
@@ -184,25 +240,304 @@ def is_public(name: Any) -> bool:
     return isinstance(name, str) and (name in PUBLIC_NAMES or name.startswith(PUBLIC_PREFIXES))
 
 
-def _refuse_private(names: Any, where: str) -> None:
-    refused = sorted(str(name) for name in names if not is_public(name))
+def check_public_arrays(arrays: Mapping[str, Any]) -> None:
+    """Refuse a demonstration's arrays that break the bundle schema, with `BundleSchemaError`.
+
+    The allow-list (Q4); no object dtype, since nothing in a bundle is pickled; every
+    `frames_<camera>` uint8 RGB `(T, H, W, 3)` with one T >= 2 for all; `times` float64 `(T,)`,
+    finite and never decreasing (Q4). `write` calls it, and `read` holds what it loads to the same
+    rules; the message lists every problem.
+    """
+    if not isinstance(arrays, Mapping):
+        raise BundleSchemaError(f"arrays is a {type(arrays).__name__}, not a mapping of names")
+    arrays = _as_arrays(arrays)
+    problems = _layout_problems({name: (a.dtype, a.shape) for name, a in arrays.items()})
+    if not problems:
+        problems = _times_problems(arrays["times"])
+    if problems:
+        raise BundleSchemaError(f"demonstration arrays: {'; '.join(problems)}")
+
+
+# -- the schema ---------------------------------------------------------------------------------
+
+
+def _layout_problems(described: Mapping[str, tuple[np.dtype, tuple[int, ...]]]) -> list[str]:
+    """Every problem with the names, dtypes and shapes of a demonstration's arrays."""
+    problems = []
+    refused = sorted(str(name) for name in described if not is_public(name))
     if refused:
-        raise BundleSchemaError(
-            f"{where} holds {', '.join(map(repr, refused))}, which no policy may be given: a "
-            "demonstration's public arrays are frames_<camera> and times only, and the "
-            "demonstrator's state and actions go under private/ (Q4)"
+        problems.append(
+            f"{', '.join(map(repr, refused))}: no policy may be given these; a demonstration's "
+            "public arrays are frames_<camera> and times only, and the demonstrator's state and "
+            "actions go under private/ (Q4)"
         )
+    pickled = sorted(name for name, (dtype, _) in described.items() if dtype.hasobject)
+    if pickled:
+        problems.append(
+            f"{', '.join(map(repr, pickled))} hold Python objects, which would be pickled; nothing "
+            "in a bundle is (object dtypes are refused)"
+        )
+    lengths = set()
+    frames = sorted(name for name in described if is_public(name) and name != "times")
+    for name in frames:
+        dtype, shape = described[name]
+        if name == PUBLIC_PREFIXES[0]:
+            problems.append(f"{name!r} names no camera (Q4)")
+        elif dtype != np.uint8 or len(shape) != 4 or shape[-1] != 3 or 0 in shape[1:]:
+            problems.append(f"{name} is {dtype} {tuple(shape)}, not uint8 RGB (T, H, W, 3) (Q4)")
+        else:
+            lengths.add(shape[0])
+    if not frames:
+        problems.append("there is no frames_<camera> array: a demonstration is a video (Q4)")
+    if len(lengths) > 1:
+        problems.append(f"the frames_ arrays hold {sorted(lengths)} frames, not one T (Q4)")
+    if "times" not in described:
+        problems.append("there is no times array: frames_*[t] was recorded at times[t] (Q4)")
+    else:
+        dtype, shape = described["times"]
+        if dtype.kind != "f" or dtype.itemsize != 8 or len(shape) != 1:
+            problems.append(f"times is {dtype} {tuple(shape)}, not float64 (T,) (Q4)")
+        elif len(lengths) == 1 and shape[0] not in lengths:
+            problems.append(f"times holds {shape[0]} values for {min(lengths)} frames (Q4)")
+    if lengths and min(lengths) < 2:
+        problems.append(f"{min(lengths)} frames are too few for a demonstration: T >= 2 (Q4)")
+    return problems
 
 
-def _write_json(path: Path, value: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(value, indent=2, sort_keys=True, allow_nan=False) + "\n")
+def _times_problems(times: np.ndarray) -> list[str]:
+    if not np.isfinite(times).all():
+        return ["times holds a value that is not finite (Q4)"]
+    if (np.diff(times) < 0).any():
+        step = int(np.argmax(np.diff(times) < 0))
+        return [f"times decreases at step {step + 1}: it never does (Q4)"]
+    return []
+
+
+def _manifest_problems(manifest: Mapping[str, Any]) -> list[str]:
+    """Every problem with the manifest's `demo_source`, `camera` and `cameras` (Q13, Q4)."""
+    problems = []
+    source = manifest.get("demo_source")
+    fields = CAMERA_FIELDS.get(source) if isinstance(source, str) else None
+    if fields is None:
+        problems.append(f"demo_source is {source!r}, not one of {', '.join(DEMO_SOURCES)} (Q13)")
+    camera = manifest.get("camera")
+    if not isinstance(camera, Mapping):
+        problems.append(f"camera is {camera!r}, not a mapping of its fields (Q13)")
+    elif fields is not None:
+        if set(camera) != set(fields):
+            problems.append(
+                f"camera has {sorted(map(str, camera))}; a {source} demonstration's camera is "
+                f"{{{', '.join(fields)}}} (Q13)"
+            )
+        problems += _camera_field_problems(camera)
+    cameras = manifest.get("cameras")
+    if not (
+        isinstance(cameras, list)
+        and cameras
+        and all(isinstance(name, str) and name for name in cameras)
+    ):
+        problems.append(f"cameras is {cameras!r}, not a non-empty list of camera names (Q4)")
+    elif len(set(cameras)) != len(cameras):
+        problems.append(f"cameras lists a camera twice: {cameras} (Q4)")
+    else:
+        if isinstance(camera, Mapping) and cameras[0] != camera.get("name"):
+            problems.append(
+                f"cameras starts with {cameras[0]!r}, not the primary camera, camera.name "
+                f"{camera.get('name')!r} (Q4, Q13)"
+            )
+        if cameras[1:] != sorted(cameras[1:]):
+            problems.append(f"cameras after the primary one are not in name order: {cameras} (Q4)")
+    return problems
+
+
+def _camera_field_problems(camera: Mapping[str, Any]) -> list[str]:
+    problems = []
+    name = camera.get("name")
+    if "name" in camera and not (isinstance(name, str) and name):
+        problems.append(f"camera.name is {name!r}, not a camera name (Q13)")
+    for side in ("w", "h"):
+        value = camera.get(side)
+        if side in camera and not (_is_int(value) and value > 0):
+            problems.append(f"camera.{side} is {value!r}, not a positive number of pixels (Q13)")
+    fovy = camera.get("fovy")
+    if "fovy" in camera and not (_is_finite(fovy) and fovy > 0):
+        problems.append(f"camera.fovy is {fovy!r}, not a positive angle (Q13)")
+    if "pose" in camera:
+        pose = camera["pose"]
+        if not (isinstance(pose, list) and len(pose) == 7 and all(_is_finite(v) for v in pose)):
+            problems.append(
+                f"camera.pose is {pose!r}, not [x, y, z, qw, qx, qy, qz]: a position in metres "
+                "and a unit quaternion (Q13)"
+            )
+        # _is_finite above, never math.isfinite, and hypot here, never sqrt(sum of squares): JSON
+        # carries an integer no double can hold, and a component of 1e200 squares to an
+        # OverflowError. Every problem with a manifest is listed, never raised.
+        elif abs(math.hypot(*(float(v) for v in pose[3:])) - 1.0) > UNIT_NORM_TOL:
+            problems.append(
+                f"camera.pose's quaternion {pose[3:]} is not within {UNIT_NORM_TOL:g} of unit "
+                "norm (Q13, Q3)"
+            )
+    for field in ("source", "video"):
+        value = camera.get(field)
+        if field in camera and not (isinstance(value, str) and value):
+            problems.append(f"camera.{field} is {value!r}, not a non-empty string (Q13)")
+    return problems
+
+
+def _camera_problems(
+    manifest: Mapping[str, Any], sizes: dict[str, tuple[int, int]], what: str
+) -> list[str]:
+    """Whether `camera` and `cameras` name the demonstration's frames_ arrays, and whether the
+    primary camera's `w` and `h` are the frames' own (Q13, Q4)."""
+    problems = []
+    camera = manifest.get("camera")
+    name = camera.get("name") if isinstance(camera, Mapping) else None
+    if name not in sizes:
+        problems.append(f"camera.name {name!r} names no frames_<camera> in {what} (Q13)")
+    elif isinstance(camera, Mapping) and _is_int(camera.get("h")) and _is_int(camera.get("w")):
+        # The same rule as info.cameras against an observation (Q3 C-P3): a lens no frame was
+        # rendered through says nothing about the demonstration a model is shown.
+        height, width = sizes[name]
+        if (camera["h"], camera["w"]) != (height, width):
+            problems.append(
+                f"frames_{name} is {height} x {width}, not camera.h x camera.w "
+                f"{camera['h']} x {camera['w']} (Q13)"
+            )
+    cameras = manifest.get("cameras")
+    if isinstance(cameras, list) and set(cameras) != set(sizes):
+        problems.append(f"cameras lists {cameras}; {what} are {sorted(sizes)} (Q4)")
+    return problems
+
+
+def _frame_sizes(arrays: Mapping[str, Any]) -> dict[str, tuple[int, int]]:
+    """`{camera: (h, w)}` of every frames_<camera> array, whose layout has already been checked."""
+    prefix = PUBLIC_PREFIXES[0]
+    return {
+        name[len(prefix) :]: (int(np.shape(array)[1]), int(np.shape(array)[2]))
+        for name, array in arrays.items()
+        if name.startswith(prefix)
+    }
+
+
+# -- files --------------------------------------------------------------------------------------
+
+
+def _checked_files(files: Any, where: Path) -> dict[str, str]:
+    """The `files` map, if it names the bundle's own public files only, each with a sha256."""
+    if not isinstance(files, dict):
+        raise BundleError(f"{where}: files is {files!r}, not {{file: sha256}}")
+    for name, sha in files.items():
+        if name not in PUBLIC_FILES:
+            where_to = "a path outside the bundle" if _escapes(name) else "not a bundle file"
+            raise BundleError(
+                f"{where}: files names {name!r}, {where_to}; a bundle hashes "
+                f"{' and '.join(PUBLIC_FILES)} there"
+            )
+        if not (isinstance(sha, str) and len(sha) == 64 and set(sha) <= _SHA256_HEX):
+            raise BundleError(f"{where}: files[{name!r}] is {sha!r}, not a sha256")
+    if FRAMES_NPZ not in files:
+        raise BundleError(f"{where}: files must hash at least {FRAMES_NPZ}")
+    return files
+
+
+def _escapes(name: Any) -> bool:
+    text = str(name).replace("\\", "/")
+    return text.startswith("/") or ".." in text.split("/")
+
+
+def _hash_file(path: Path) -> str:
+    if path.is_symlink() or not path.is_file():
+        raise BundleError(f"{path}: the manifest hashes it, but it is not a file in the bundle")
+    try:
+        return _sha256(path)
+    except OSError as exc:
+        raise BundleError(f"{path}: cannot be read: {exc}") from None
+
+
+def _sha256(path: Path) -> str:
+    sha = hashlib.sha256()
+    with open(path, "rb") as handle:
+        while chunk := handle.read(_CHUNK):
+            sha.update(chunk)
+    return sha.hexdigest()
+
+
+def _load_npz(path: Path) -> dict[str, np.ndarray]:
+    """The arrays of a bundle's npz, their names, dtypes and shapes checked before any is loaded."""
+    if path.is_symlink() or not path.is_file():
+        raise BundleError(f"{path}: no such file in the bundle")
+    described = _npz_headers(path)
+    problems = _layout_problems(described)
+    if problems:
+        raise BundleSchemaError(f"{path}: {'; '.join(problems)}")
+    try:
+        with np.load(path, allow_pickle=False) as data:
+            arrays = {name: data[name] for name in data.files}
+    except Exception as exc:  # zlib, zipfile, numpy: whatever a damaged archive makes them raise
+        raise BundleError(f"{path}: cannot be read: {type(exc).__name__}: {exc}") from None
+    problems = _times_problems(arrays["times"])
+    if problems:
+        raise BundleSchemaError(f"{path}: {'; '.join(problems)}")
+    return arrays
+
+
+def _npz_headers(path: Path) -> dict[str, tuple[np.dtype, tuple[int, ...]]]:
+    """`{name: (dtype, shape)}` of every array in an npz, read from the headers alone."""
+    described: dict[str, tuple[np.dtype, tuple[int, ...]]] = {}
+    try:
+        with zipfile.ZipFile(path) as archive:
+            for member in archive.infolist():
+                name, suffix = member.filename[:-4], member.filename[-4:]
+                if suffix != ".npy" or name in described:
+                    raise BundleError(f"{path}: member {member.filename!r} is not one array")
+                with archive.open(member) as handle:
+                    version = np.lib.format.read_magic(handle)
+                    if version == (1, 0):
+                        shape, _, dtype = np.lib.format.read_array_header_1_0(handle)
+                    elif version == (2, 0):
+                        shape, _, dtype = np.lib.format.read_array_header_2_0(handle)
+                    else:
+                        raise BundleError(f"{path}: {name!r} is npy format {version}")
+                described[name] = (np.dtype(dtype), tuple(shape))
+    except BundleError:
+        raise
+    except Exception as exc:  # not a zip, a truncated one, a header numpy cannot parse
+        raise BundleError(f"{path}: cannot be read: {type(exc).__name__}: {exc}") from None
+    return described
+
+
+# -- helpers ------------------------------------------------------------------------------------
+
+
+def _as_arrays(arrays: Mapping[str, Any]) -> dict[str, np.ndarray]:
+    converted = {}
+    for name, value in arrays.items():
+        if not isinstance(name, str) or not name:
+            raise BundleSchemaError(f"array name {name!r} is not a non-empty string")
+        try:
+            converted[name] = value if isinstance(value, np.ndarray) else np.asarray(value)
+        except (TypeError, ValueError) as exc:  # a ragged list, a tensor numpy cannot take
+            raise BundleSchemaError(f"array {name!r} is not an array: {exc}") from None
+    return converted
+
+
+def _json_text(value: Any, what: str) -> str:
+    try:
+        return json.dumps(value, indent=2, sort_keys=True, allow_nan=False) + "\n"
+    except (TypeError, ValueError, RecursionError) as exc:
+        raise BundleSchemaError(f"{what} is not plain JSON: {exc}") from None
 
 
 def _read_json(path: Path) -> Any:
     try:
-        return json.loads(path.read_text())
+        return json.loads(path.read_bytes().decode("utf-8"))
     except FileNotFoundError:
         raise BundleError(f"{path}: no such file") from None
-    except ValueError as exc:
-        raise BundleError(f"{path}: {exc}") from None
+    except OSError as exc:
+        raise BundleError(f"{path}: cannot be read: {exc}") from None
+    except (ValueError, RecursionError) as exc:  # UnicodeDecodeError is a ValueError
+        raise BundleError(f"{path}: not JSON: {exc}") from None
+
+
+def _is_int(value: Any) -> bool:
+    return isinstance(value, numbers.Integral) and not isinstance(value, (bool, np.bool_))

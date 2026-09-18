@@ -19,6 +19,17 @@ adopts one version set once. What a consumer must change:
     for any other `BundleError` (rebuild the unit).
   - A reader of `public_arrays` gets `frames_*` and `times` only; nothing may expect `qpos`,
     `endpose` or `actions` in a demonstration.
+  - Frames are uint8 RGB `(T, H, W, 3)` with one T ≥ 2 and `times` float64 `(T,)`, never
+    decreasing; no array is an object array.
+  - `demo.json` carries `cameras` (the primary camera first, the rest in name order, exactly the
+    `frames_` arrays), and `camera` carries exactly Q13's fields for its `demo_source`:
+    `{name, w, h, fovy, pose}` with `pose = [x, y, z, qw, qx, qy, qz]` for `expert` and `mimicgen`,
+    `{name, w, h, source, video}` for `humangen` (whose `camera.name` is `human`, the channel).
+    `camera.w` and `camera.h` are the primary camera's own frames' width and height, as
+    `info.cameras`' are an observation's (Q3): a lens that is not the frames' size is refused.
+  - `bundle.read` raises only `BundleError`s; `bundle.digest` of an unreadable file too. A
+    number `demo.json` carries that no double can hold - a JSON integer is unbounded - is a
+    listed schema problem, never an `OverflowError`.
 
 ### Changed
 
@@ -29,6 +40,16 @@ adopts one version set once. What a consumer must change:
   names only. On `same_as_demo` axes those arrays were the expert's trajectory for the very scene a
   policy is scored in. (#14)
 - A bundle's arrays are compressed: an uncompressed click_bell unit was 103 MB, compressed 22 MB.
+
+### Fixed
+
+- `bundle.write` and `bundle.read` enforce the schema they describe, and every read failure is a
+  `BundleError`. `write` accepted float64 frames of shape (5, 4, 4) with two timestamps, pickled
+  object arrays into the npz, and took `camera={}`; `read` raised `FileNotFoundError` or numpy's
+  `ValueError`, which the forks do not catch, and opened whatever path `files` named, `../` included.
+  Now frames, `times`, object dtypes, `camera` (Q13) and `cameras` (Q4) are refused alike at write
+  and read with `BundleSchemaError`; `files` names the bundle's own public files only; the npz's
+  names and dtypes are read from its headers before anything is loaded. (#3)
 
 ### Added
 
