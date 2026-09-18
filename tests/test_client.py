@@ -174,10 +174,13 @@ def test_each_call_carries_its_own_budget(recorder):
     assert client._budget("act") == 0.5
 
 
+@pytest.mark.parametrize("value", [0, -1.0, float("nan"), float("inf"), 1e30])
 @pytest.mark.parametrize("budget", ["timeout_s", "prompt_timeout_s", "act_timeout_s"])
-def test_a_budget_that_is_not_a_budget_is_refused_before_connecting(tmp_path, budget):
-    with pytest.raises(ValueError, match=f"{budget} must be positive"):
-        RemotePolicy(str(tmp_path / "nothing.sock"), b"k" * 32, **{budget: 0})
+def test_a_budget_that_is_not_a_budget_is_refused_before_connecting(tmp_path, budget, value):
+    """One rule for the three, as serve's --idle-timeout-s: an infinite budget is no "no timeout",
+    it was an OverflowError out of the socket or a deadline thread that died."""
+    with pytest.raises(ValueError, match=f"{budget} must be a positive, finite number"):
+        RemotePolicy(str(tmp_path / "nothing.sock"), b"k" * 32, **{budget: value})
 
 
 def test_an_info_that_is_not_Q14s_is_refused_before_a_byte_is_sent(recorder):

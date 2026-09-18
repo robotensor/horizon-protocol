@@ -651,6 +651,16 @@ def test_write_refuses_a_directory_that_holds_anything_else(tmp_path):
     assert not (unit / bundle.DEMO_JSON).exists()
 
 
+def test_a_directory_write_cannot_write_into_is_a_bundle_error_not_an_oserror(tmp_path):
+    """A parent that is a regular file: the OSError is the module's own class, never raw."""
+    (tmp_path / "afile").write_text("x")
+    arrays, _ = demonstration()
+
+    with pytest.raises(BundleError, match="cannot be written") as refused:
+        bundle.write(tmp_path / "afile" / "unit", manifest=manifest(), arrays=arrays)
+    assert type(refused.value) is BundleError  # exit 4, not a schema problem (exit 2)
+
+
 def test_write_refuses_a_symlink_under_private(tmp_path):
     unit = tmp_path / "unit"
     (unit / bundle.PRIVATE_DIR).mkdir(parents=True)

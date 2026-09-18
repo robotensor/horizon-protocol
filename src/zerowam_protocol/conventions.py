@@ -29,7 +29,8 @@ The checks, one per conformance item of `docs/conventions.md` §10:
 - `check_chunk(action, spec)` (C-P2): what a fork refuses before executing a policy's output.
 - `check_observation(observation, spec, cameras)` (C-P3): what a fork sends a policy each step.
 
-Each raises `ValueError`, naming what it refused and Q3, and lists every problem it found. A number
+Each raises `ValueError`, naming what it refused and Q3, and lists every problem it found; the
+`spec` `check_chunk` and `check_observation` are given is one `check_action_spec` accepted. A number
 JSON can carry but a double cannot hold (`10 ** 400`) is one of those problems, never an
 `OverflowError`: nothing here converts a value it has not first range-tested (`_is_finite`). None of
 them converts, normalises or clips anything: converting is the fork's job, and a fork normalises a
@@ -223,6 +224,8 @@ def check_observation(
     `cameras` (`info.cameras`: `{name, role, w, h}` each) has its `frames_<name>`, and every
     `frames_*` array is uint8 RGB `(h, w, 3)`, or `(K, h, w, 3)` when stacked, at the resolution its
     camera declares. `qpos` is outside the convention and not checked; nor is any other array.
+    `spec` is one that `check_action_spec` accepts; it is not checked again here, so a refusal is
+    always the observation's.
     """
     if not isinstance(observation, Mapping):
         raise ValueError(f"an observation is a mapping of arrays, not {type(observation).__name__}")
@@ -414,7 +417,10 @@ def _state_problems(rows: np.ndarray, channel: str, arms: list[str]) -> list[str
 def _frames_problems(
     name: str, value: Any, stack: int | None, declared: tuple[Any, Any] | None
 ) -> list[str]:
-    array = np.asarray(value) if not isinstance(value, np.ndarray) else value
+    try:
+        array = _array(value, name, "C-P3")
+    except ValueError as exc:
+        return [str(exc)]
     expected = 3 if stack is None else 4
     if array.dtype != np.uint8 or array.ndim != expected or array.shape[-1] != 3:
         form = "(h, w, 3)" if stack is None else f"({stack}, h, w, 3)"
@@ -429,11 +435,19 @@ def _frames_problems(
     return problems
 
 
-def _real_array(value: Any, what: str, check: str) -> np.ndarray:
+def _array(value: Any, what: str, check: str) -> np.ndarray:
+    """`value` as an array, or a `ValueError` naming it: a ragged list, or an `__array__` that
+    raises, is one more problem the check lists, never numpy's own error."""
+    if isinstance(value, np.ndarray):
+        return value
     try:
-        array = value if isinstance(value, np.ndarray) else np.asarray(value)
-    except (TypeError, ValueError) as exc:
+        return np.asarray(value)
+    except (TypeError, ValueError, OverflowError) as exc:
         raise ValueError(f"{what} is not an array: {exc} (Q3, {check})") from None
+
+
+def _real_array(value: Any, what: str, check: str) -> np.ndarray:
+    array = _array(value, what, check)
     if array.dtype.kind not in "iuf":
         raise ValueError(f"{what} has dtype {array.dtype}, not real numbers (Q3, {check})")
     return array

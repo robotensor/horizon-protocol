@@ -169,6 +169,24 @@ def test_a_policy_whose_served_the_wire_cannot_carry_is_refused_cleanly(tmp_path
     assert served.process.wait(timeout=20) == EXIT_FAILED
 
 
+def test_a_cadence_the_policy_broke_after_it_was_built_is_answered_at_the_next_hello(tmp_path):
+    """`observe_every` is read again at every hello, and answered like `served`, not left to kill
+    the server with the client hearing only that it went away."""
+    served = serve(tmp_path, "policies_for_tests:LaterNegativeObservePolicy", max_sessions=3)
+    client = served.policy
+    try:
+        client.hello()
+        client.reset(0)  # the policy sets observe_every = -3
+        client.close()
+        client = served.connect()
+        with pytest.raises(PolicyUnavailable, match="observe_every must be a non-negative"):
+            client.hello()
+    finally:
+        client.close()
+
+    assert served.process.wait(timeout=20) == EXIT_FAILED
+
+
 @pytest.mark.parametrize(
     "knobs",
     [{"steps": np.int64(4)}, {"path": Path("/models/mine")}, {"guidance": float("nan")}],

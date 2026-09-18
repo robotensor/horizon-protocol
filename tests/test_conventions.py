@@ -324,6 +324,13 @@ def _changed(name, value, stack=None):
     return observation
 
 
+class _NoArray:
+    """An object numpy asks for an array and gets an exception instead."""
+
+    def __array__(self, dtype=None, copy=None):
+        raise TypeError("no array for you")
+
+
 def _state(index, value):
     state = pose_row(2)
     state[index] = value
@@ -345,6 +352,8 @@ def _state(index, value):
         (_changed("frames_head_camera", np.zeros((10, 8, 3), np.uint8)), "not h x w 8 x 10"),
         (_changed("frames_extra", np.zeros((2, 8, 10, 3), np.uint8)), "not uint8 RGB"),
         (_changed("frames_head_camera", np.zeros((2, 8, 10, 3), np.uint8), 3), "stacks 2"),
+        (_changed("frames_head_camera", [[0, 0], [0]]), "frames_head_camera is not an array"),
+        (_changed("frames_head_camera", _NoArray()), "frames_head_camera is not an array"),
     ],
     ids=[
         "no state",
@@ -359,6 +368,8 @@ def _state(index, value):
         "wrong resolution",
         "unstacked extra frames",
         "stack mismatch",
+        "ragged frames",
+        "frames without an array",
     ],
 )
 def test_an_observation_a_fork_must_not_send_is_refused(observation, words):
