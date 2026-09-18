@@ -19,6 +19,9 @@ adopts one version set once. What a consumer must change:
     for any other `BundleError` (rebuild the unit).
   - A reader of `public_arrays` gets `frames_*` and `times` only; nothing may expect `qpos`,
     `endpose` or `actions` in a demonstration.
+  - `RemotePolicy.set_demonstration` refuses the same arrays `bundle.write` does, before it sends
+    anything: a fork that assembles its own demonstration arrays rather than passing
+    `bundle.public_arrays` gets `BundleSchemaError` (exit 2), not a served policy.
   - Frames are uint8 RGB `(T, H, W, 3)` with one T ≥ 2 and `times` float64 `(T,)`, never
     decreasing; no array is an object array.
   - `demo.json` carries `cameras` (the primary camera first, the rest in name order, exactly the
@@ -78,6 +81,12 @@ adopts one version set once. What a consumer must change:
   `BundleSchemaError`, a `BundleError` that names the array and Q4; `public_arrays` keeps allow-listed
   names only. On `same_as_demo` axes those arrays were the expert's trajectory for the very scene a
   policy is scored in. (#14)
+- The one socket call that carries a demonstration checks the allow-list too:
+  `RemotePolicy.set_demonstration` runs `bundle.check_public_arrays` and raises `BundleSchemaError`
+  naming the array and Q4 before a byte reaches the policy, so a fork that builds its own arrays
+  cannot leak the demonstrator's record past `bundle.read`. The refusal does not touch the
+  connection and is never `PolicyUnavailable`: it is the benchmark's error (exit 2), never a
+  harness void or a model failure. (#16)
 - A bundle's digest covers demo.json and every file under `private/`. `demo.json` records
   `private_files {path: sha256}` for every file under `private/`, nested ones included;
   `bundle.digest(bundle_dir)` is the sha256 of `demo.json`'s bytes and so covers the whole unit;

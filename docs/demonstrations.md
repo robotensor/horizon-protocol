@@ -14,7 +14,7 @@ This page is for someone who adds a benchmark (a fork that writes bundles) or a 
 | P12 | this repo | the allow-list | landed: `bundle.write`, `bundle.read` and `public_arrays` |
 | P1 | this repo | `BundleSchemaError` at write and read | landed: the allow-list, object dtypes, the frames and `times` rules, `camera` (Q13) and `cameras`; every read failure is a `BundleError` |
 | P2 | this repo | bundle version 2: every file hashed, `private/` included, and `demo.json`'s sha256 as the bundle's digest | landed: `bundle.write(..., expert=...)`, `private_files`, `bundle.digest(bundle_dir)` |
-| P13 | this repo | the check at send | pending |
+| P13 | this repo | the check at send | landed: `RemotePolicy.set_demonstration` refuses a non-allow-listed array before a byte is sent |
 | P14 | this repo | the input vocabulary | landed: `bundle.DEMONSTRATION_INPUTS`, `bundle.PROMPT_LANGUAGES`, `bundle.check_demonstration_inputs` |
 | P10 | this repo | conformance | pending |
 | P11 | this repo | `info` keys | pending |
@@ -24,7 +24,7 @@ This page is for someone who adds a benchmark (a fork that writes bundles) or a 
 | RU9, RU15 | zerowam-runtime | runtime and recipes | pending |
 | C3, C10, C12 | zerowam-competition | competition | pending |
 
-Until P13 lands, `RemotePolicy.set_demonstration` does not check the allow-list: a fork MUST send `bundle.public_arrays` of what `bundle.read` returned, and nothing else.
+A fork still builds `set_demonstration`'s arrays with `bundle.public_arrays` of what `bundle.read` returned: the check at send is the last guard, not the way to find out what is public.
 
 ---
 

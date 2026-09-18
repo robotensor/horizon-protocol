@@ -18,6 +18,12 @@ that is malformed. When `log_file` names the server's log, the exception's messa
 tail; otherwise with the tail the server sent in its error reply, if any. A benchmark catches that
 one exception and decides what it costs the unit.
 
+**A demonstration no policy may be given is the benchmark's error, not the policy's.**
+`set_demonstration` holds its arrays to the bundle schema (`bundle.check_public_arrays`: the
+allow-list of decision Q4, `frames_<camera>` and `times` only, no object array) before a byte is
+sent, and refuses anything else with `BundleSchemaError`: a fork maps it to exit 2, never to a
+harness void or a model failure.
+
 **Timeouts are hard.** Connecting (retried while nothing listens yet) and authenticating share
 one `timeout_s`, and each call gets its own, covering both sending the request and receiving the
 whole reply. When one runs out the socket is shut down, which unblocks whatever was waiting and
@@ -28,8 +34,9 @@ serving. After an error reply to `hello` the policy could not be built and the s
 the session, so, as after any other failure, the connection is closed and every later call raises
 `PolicyUnavailable` at once. `close` is the exception: it is best effort and raises nothing, so
 leaving a `with` block never replaces the outcome the benchmark already has. A value that cannot
-be sent at all, such as an object array, is the caller's mistake: `WireError`, before anything is
-sent, and the connection is untouched. One `RemotePolicy` serves one thread at a time.
+be sent at all, such as an object array in an observation, is the caller's mistake: `WireError`
+(`BundleSchemaError` in a demonstration), before anything is sent, and the connection is
+untouched. One `RemotePolicy` serves one thread at a time.
 """
 
 from __future__ import annotations
@@ -46,8 +53,8 @@ from typing import Any
 
 import numpy as np
 
-from . import __version__, logs, observe, wire
-from .errors import PolicyUnavailable, WireError
+from . import __version__, bundle, logs, observe, wire
+from .errors import BundleSchemaError, PolicyUnavailable, WireError
 from .policy import ACTION_TYPES
 
 __all__ = ["PolicyUnavailable", "RemotePolicy"]
@@ -129,7 +136,20 @@ class RemotePolicy:
         self._call("reset", {"seed": int(seed)})
 
     def set_demonstration(self, arrays: Mapping[str, Any], info: Mapping[str, Any]) -> None:
-        """Hand over the demonstration: named arrays and public `info` fields, never `meta`."""
+        """Hand over the demonstration: its public arrays and the public `info` fields.
+
+        `arrays` is `bundle.public_arrays` of what `bundle.read` returned: `frames_<camera>` uint8
+        RGB `(T, H, W, 3)` and `times` float64 `(T,)`, nothing else (decision Q4). Any other array,
+        an object array, or frames and times that break the bundle schema are refused with
+        `BundleSchemaError` before a byte is sent, whatever the state of the connection, which is
+        left as it was: the benchmark built a demonstration no policy may be given, so it is the
+        benchmark's error (a fork exits 2), never `PolicyUnavailable`, never scored against a
+        submission.
+        """
+        try:
+            bundle.check_public_arrays(arrays)
+        except BundleSchemaError as exc:
+            raise BundleSchemaError(f"set_demonstration refused, nothing was sent: {exc}") from None
         if not isinstance(info, Mapping):
             raise TypeError(f"info must be a mapping, not {type(info).__name__}")
         self._call("prompt", {"info": dict(info)}, arrays)
