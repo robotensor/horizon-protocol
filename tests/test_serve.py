@@ -203,3 +203,20 @@ def test_a_client_refuses_a_hello_without_a_usable_observe_every(tmp_path, reply
     finally:
         server.join(timeout=10)
         listener.close()
+
+
+def test_every_client_of_a_kept_policy_hears_its_observe_every(tmp_path):
+    """--max-sessions keeps the policy; the second client must still be told to send frames."""
+    served = serve(tmp_path, "policies_for_tests:ObservingPolicy", max_sessions=2)
+    try:
+        first = served.policy.hello()
+        served.policy.close()
+        second_client = served.connect()
+        second = second_client.hello()
+        second_client.close()
+    finally:
+        served.process.wait(timeout=20)
+
+    assert first["observe_every"] == 4
+    assert second["observe_every"] == 4
+    assert second_client.observe_every == 4
