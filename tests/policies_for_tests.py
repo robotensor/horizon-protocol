@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 import numpy as np
 
 
@@ -83,4 +85,28 @@ class NegativeObservePolicy:
         pass
 
     def act(self, observation):
+        return {"action": np.zeros(16)}
+
+
+class SlowPolicy:
+    """Sleeps for as long as it is told, so one call can outlast a budget another call sets.
+
+    The server builds it from `--policy-arg`, whose values are strings.
+    """
+
+    action_type = "ee"
+
+    def __init__(self, prompt_s=0.0, reset_s=0.0, act_s=0.0) -> None:
+        self.prompt_s = float(prompt_s)
+        self.reset_s = float(reset_s)
+        self.act_s = float(act_s)
+
+    def reset(self, seed: int) -> None:
+        time.sleep(self.reset_s)
+
+    def set_demonstration(self, arrays, info) -> None:
+        time.sleep(self.prompt_s)
+
+    def act(self, observation):
+        time.sleep(self.act_s)
         return {"action": np.zeros(16)}
