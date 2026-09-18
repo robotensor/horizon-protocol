@@ -140,6 +140,13 @@ adopts one version set once. What a consumer must change:
 
 ### Fixed
 
+- `serve.build_policy` closes a policy it refuses. The class is constructed before it is read, so
+  one refused for its `action_type`, a missing method or an `observe_every` that means nothing was
+  already holding whatever its `__init__` opened - weights, a CUDA context, an `expert.npz` - and
+  was dropped without a `close`. The server exits with such a policy, so nothing there noticed; a
+  caller that builds one policy after another in one process (`conformance.check_policy`, a fork's
+  selftest over the runtimes it ships) held it for the rest of the run. A close that blows up is
+  dropped, so the refusal still says why the policy could not be built. (#12)
 - A kept server neither leaks per session nor exits 0 when a client hangs up mid-call. Each session
   duplicated the connection's descriptor into a hang-up watch and started a thread that waited
   forever, and nothing released either: 51 sessions held 55 descriptors and 75 threads where one

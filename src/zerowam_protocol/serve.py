@@ -137,7 +137,12 @@ def parse_policy(spec: str) -> tuple[str, str]:
 
 
 def build_policy(spec: str, kwargs: Mapping[str, Any] | None = None) -> Any:
-    """`module:Class`, imported and constructed with `kwargs`, once it answers to `Policy`."""
+    """`module:Class`, imported and constructed with `kwargs`, once it answers to `Policy`.
+
+    A class that is constructed and then refused is closed before the refusal is raised: it is
+    already holding whatever its `__init__` opened, and a caller that builds one policy after
+    another in one process outlives the refusal where this server does not.
+    """
     module_name, attribute = parse_policy(spec)
     importlib.invalidate_caches()
     module = importlib.import_module(module_name)
@@ -157,6 +162,15 @@ def build_policy(spec: str, kwargs: Mapping[str, Any] | None = None) -> Any:
     except ValueError as exc:
         problems.append(str(exc))
     if problems:
+        # The class was constructed before it was read, so a policy refused here has already opened
+        # whatever its __init__ opens - weights, a CUDA context, an expert.npz. The server exits
+        # with it, but a caller that builds one policy after another in one process
+        # (`conformance.check_policy`, a fork's selftest) would hold it for the rest of the run.
+        # The refusal is what the caller needs, so a close that blows up is dropped, not raised.
+        with contextlib.suppress(Exception):
+            close = getattr(policy, "close", None)
+            if callable(close):
+                close()
         raise TypeError(f"{spec} is not a Policy: {'; '.join(problems)}")
     return policy
 

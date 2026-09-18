@@ -263,20 +263,40 @@ def test_check_policy_closes_a_policy_it_refuses():
 
 
 @pytest.mark.parametrize(
-    ("policy", "says"),
+    ("policy", "refusal", "says"),
     [
-        pytest.param("policies_for_tests:WrongTypeClosingPolicy", "action_type", id="action_type"),
-        pytest.param("policies_for_tests:BadServedClosingPolicy", "protocol 3", id="served"),
+        pytest.param(
+            "policies_for_tests:WrongTypeClosingPolicy",
+            ConformanceError,
+            "action_type",
+            id="action_type",
+        ),
+        pytest.param(
+            "policies_for_tests:BadCadenceClosingPolicy",
+            TypeError,
+            "observe_every",
+            id="observe_every",
+        ),
+        pytest.param(
+            "policies_for_tests:BadServedClosingPolicy",
+            ConformanceError,
+            "protocol 3",
+            id="served",
+        ),
     ],
 )
-def test_check_policy_closes_a_policy_refused_before_it_was_driven(policy, says):
+def test_check_policy_closes_a_policy_refused_before_it_was_driven(policy, refusal, says):
     """What a policy declares is refused before the first `act`, and closes it just the same.
 
-    These are the first two things `check_policy` looks at, so they are the paths a fork and a
-    runtime hit; a policy refused there holds whatever it opened for the rest of the selftest.
+    These are the three things `check_policy` reads off a policy before it drives it, so they are
+    the paths a fork and a runtime hit; a policy refused on one of them holds whatever its
+    constructor opened for the rest of the selftest. Two are the check's own refusals; the cadence
+    is `serve.build_policy`'s, which reads `observe_every` on the instance it has just built and
+    raises `TypeError` without handing it back - so that one is closed there, and `check_policy`
+    never sees the policy at all.
     """
     policies_for_tests.CLOSED.clear()
-    with pytest.raises(ConformanceError, match=says):
+    with pytest.raises(refusal, match=says):
         conformance.check_policy(policy, spec=ALOHA)
     assert policies_for_tests.CLOSED == [16]
 
