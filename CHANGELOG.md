@@ -107,6 +107,14 @@ adopts one version set once. What a consumer must change:
 
 ### Fixed
 
+- A kept server neither leaks per session nor exits 0 when a client hangs up mid-call. Each session
+  duplicated the connection's descriptor into a hang-up watch and started a thread that waited
+  forever, and nothing released either: 51 sessions held 55 descriptors and 75 threads where one
+  held 5 and 25, and a full evaluation of 1,490 units passes a 1024-descriptor limit. A session now
+  closes its watch, so a server's descriptors and threads after many sessions are what they were
+  after the first. A hang-up while a policy call runs exits `EXIT_HUNGUP` (3), its own status under
+  any `--max-sessions`, so a supervisor (C20) tells a lost call from a clean finish instead of
+  seeing the 0 of a server that finished its work. (#9)
 - A result's outcome can no longer be overwritten, and results record their provenance (result
   v2). `extra` was merged last, so `write(outcome="failure", extra={"outcome": "success"})` wrote a
   success; `read` accepted a void with no cause, a void caused by "model" and a success with

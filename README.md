@@ -24,6 +24,22 @@ A policy is a plain class with `action_type`, `reset(seed)`, `set_demonstration(
 `act(observation)`; `close()` is optional. Arrays arrive read-only and go back as bool, integer or
 float numpy arrays.
 
+`--max-sessions N` serves N clients one after another, keeping the policy built for the first: a
+submission is evaluated over many units and its weights are loaded once. Each session releases what
+it held, so a server kept for a whole evaluation ends with the descriptors and threads it had after
+the first unit. The exit status says how the last session ended:
+
+| Status | Meaning |
+|---|---|
+| 0 | every session ended cleanly: `close`, a hang-up between calls, or idle too long |
+| 1 | the policy could not be built, or a malformed message or another failure ended a session |
+| 2 | serving never started: arguments, key or address |
+| 3 | the client hung up **while a policy call was running**, under any `--max-sessions` |
+
+3 is its own status because a supervisor must tell it from a clean finish: the answer is lost, the
+call may never return, and the policy goes with the process, so the next unit needs a server
+started again.
+
 ## Driving one
 
 ```python
