@@ -16,7 +16,7 @@ This page is for someone who adds a benchmark (a fork that writes bundles) or a 
 | P2 | this repo | bundle version 2: every file hashed, `private/` included, and `demo.json`'s sha256 as the bundle's digest | landed: `bundle.write(..., expert=...)`, `private_files`, `bundle.digest(bundle_dir)` |
 | P13 | this repo | the check at send | landed: `RemotePolicy.set_demonstration` refuses a non-allow-listed array before a byte is sent |
 | P14 | this repo | the input vocabulary | landed: `bundle.DEMONSTRATION_INPUTS`, `bundle.PROMPT_LANGUAGES`, `bundle.check_demonstration_inputs` |
-| P10 | this repo | conformance | pending |
+| P10 | this repo | conformance | landed: `zerowam_protocol.conformance` (`check_policy`, `check_served`, `check_bundle`, `check_result`, `check_action_spec`), in the wheel; the consumers adopt it in RT16, RC11 and RU9 |
 | P11 | this repo | `info` keys | landed: `zerowam_protocol.info` (`REQUIRED_KEYS`, `check_info`), checked by `RemotePolicy.set_demonstration` and by the server |
 | P4 | this repo | the optional `stub_policy` field in `result.json` | landed: `result.write(..., stub_policy="zero" \| "replay")`, checked by `result.read`, with result version 2 |
 | RT3, RT9, RT11, RT16 | RoboTwin fork | exit 2, stub marking, `info` keys, tests | pending |

@@ -264,6 +264,46 @@ plays `ee_actions` unless `--policy-arg key=NAME` names another array of the sam
 Both are `Policy`: the protocol declares `action_type`, `reset`, `set_demonstration` and `act`, and
 nothing else, so `observe_every` and `close` stay optional for `isinstance`.
 
+## Conformance
+
+`zerowam_protocol.conformance` is the suite a consumer runs against itself: one call per thing this
+package promises, so a fork, a runtime and the harness check the contract the same way instead of
+each writing its own approximation of it. It ships in the wheel and, like the rest of the package,
+imports numpy and the standard library only.
+
+```python
+from zerowam_protocol import conformance
+
+conformance.check_action_spec(spec)  # C-P1: the space is Q3's; back come the arms' slices
+conformance.check_policy("my_runtime.policy:MyPolicy", spec=spec)  # built and driven, no socket
+conformance.check_served("my_runtime.policy:MyPolicy", spec=spec)  # the same, over the socket
+manifest, arrays = conformance.check_bundle("pool/rts-click_bell-000")
+record = conformance.check_result("runs/rts-click_bell-000", bundle_dir="pool/rts-click_bell-000")
+```
+
+- `check_policy` builds the class through `serve.build_policy`, the server's own builder, then
+  answers observations with it: every answer passes `serve.checked_action`, `check_chunk` (C-P2)
+  and the wire encoder, and a policy that declares `observe_every` is handed the stack its chunk
+  produced and its chunk length is held to `observe.check_chunk`. `seed` is what `reset` is given;
+  with `repeat=True` it is driven twice from that one seed and the answers must match, which is
+  what a policy drawing from the global RNG fails.
+- `check_served` does the same through `python -m zerowam_protocol.serve` and `RemotePolicy`, in
+  two processes, and requires the server to exit 0.
+- `check_bundle` reads a directory as bundle v2 - the schema, the declared space (C-P1) and every
+  file's hash are `bundle.read`'s - and adds the one thing reading it does not settle: the
+  demonstration a policy would be given fits in one `prompt`, counted from the arrays' shapes so
+  that checking a bundle never copies it. `check_result` reads `result.json` as result v2 and,
+  given the bundle, holds the two to each other: the same `unit_id`, the bundle's digest as
+  `demo_sha256`, the same task config and fork commit.
+- `demonstration(spec)` and `observation(spec, cameras)` build what the checks send, so a runtime
+  with no benchmark beside it can still be driven; `hold_still(spec, position=..., gripper=...)` is
+  one row of the declared layout, held to C-P2 and C-P3. What the checks hand a policy is
+  read-only, as the server's arrays are - a demonstration passed in as `demo=` too, as a view, so
+  the caller keeps its own arrays writeable.
+
+What this module adds raises `ConformanceError`; what it wraps keeps raising what it already did
+(`BundleSchemaError`, `BundleError`, `PolicyUnavailable`), so a fork's exit statuses do not change.
+
 ## Development
 
 ```bash

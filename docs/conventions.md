@@ -17,7 +17,7 @@ branch `zerowam`, `ffeaed6`; `robot.py` = `envs/robot/robot.py`, `_base_task.py`
 `zerowam-runtime` `a42edf7`; this package's own files are at `c0bb625`. `transforms3d
 quaternions.py` is `transforms3d/quaternions.py` of the transforms3d package RoboTwin runs with
 (0.4.2). The constants and the pure checks C-P1..3 named below live in
-`zerowam_protocol.conventions`; the helpers the forks' selftests use will live in
+`zerowam_protocol.conventions`; the helpers the forks' selftests use live in
 `zerowam_protocol.conformance` (P10).
 
 **Status.** This page is the contract; where an item below has not landed, the page is what
@@ -31,8 +31,14 @@ implementers follow.
   `RemotePolicy.set_demonstration` before it sends and by the server on every `prompt`.
   `PROTOCOL_VERSION` is 3 (P6): `hello` declares each end's protocol, the action types the
   benchmark executes and whether it honours `observe_every`, and its reply may carry `served`.
-- **Pending in this package:** `zerowam_protocol.conformance`, the helpers the forks' checks use, is
-  P10.
+- **Landed in this package (continued):** `zerowam_protocol.conformance` (P10), the suite the
+  forks' selftests, the runtime's tests and the harness run: `check_action_spec` (C-P1 as one
+  exception type, with the arms' slices), `hold_still` (a row of the declared layout, through C-P2
+  and C-P3), `check_policy` and `check_served` (a policy built through `serve.build_policy` and
+  driven, in one process and over the socket; with `repeat=True`, twice from one seed for the same
+  answers), `check_bundle`, `check_result`, and the `demonstration` and `observation` they send. It
+  is in the wheel and needs numpy alone. The consumers' adoption is theirs: RT16, RC11 (the forks)
+  and RU9 (the runtime).
 - **Pending elsewhere:** the forks' side is RT5, RT10, RT11 (RoboTwin) and RC4, RC5, RC9
   (robocasa); the runtime's is RU5, RU8, RU9, RU10 and G7; the competition's check is C3. Issues:
   the "Code shape" milestone of each repository.
@@ -372,6 +378,8 @@ Quaternion comparisons are **up to sign** everywhere: two quaternions agree when
 | C-P1 | protocol, pure | `check_action_spec` (§5) | no error |
 | C-P2 | protocol, pure | `check_chunk(a, spec)`: shape `(A,)` or `(H,A)`; finite; each ‖q‖ ≥ 1e-6 | no error |
 | C-P3 | protocol, pure | `check_observation(obs, spec, cameras)`, `cameras` = `info.cameras`: state channel `(A,)` or `(K,A)`; ‖q‖ within 1e-3 of 1; g in [0, 1]; every `frames_<name>` in `info.cameras` is uint8 RGB | no error |
+| C-P4 | protocol, a policy | `conformance.check_policy` / `check_served`: the policy builds through `serve.build_policy`, and every answer passes `checked_action`, C-P2, the wire encoder and, with a cadence, `observe.check_chunk`; with `repeat`, two runs from one seed answer the same; in process the policy is closed however the check ends; served, the server exits 0 | no error |
+| C-P5 | protocol, the files | `conformance.check_bundle` (bundle v2, every file held to the hash `demo.json` records - `private/` included - unless `verify=False`, and a demonstration that fits in one `prompt`: at most `wire.MAX_ARRAYS` arrays, each and their sum within `wire.MAX_MESSAGE_BYTES`) and `check_result` (result v2, and the `unit_id`, digest, task config and fork commit of the bundle it says it scored) | no error |
 | C-F1 | fork selftest | Hold still: from reset, echo the state channel (last row when stacked) as the action 10 times (setpoint robots: 20 steps) | drift ≤ 5 mm and ≤ 2°; \|Δg\| ≤ 0.05 |
 | C-F2 | fork selftest | Translation: +2 cm along each axis of `frame`, one at a time | displacement within 30° of the command, ≥ 50 % of its length |
 | C-F3 | fork selftest | Rotation and quaternion order: target `q_axis(10°) ⊗ q_now` about each axis of `frame` | `q_obs ⊗ q_now⁻¹` has its axis within 30° of the commanded axis and an angle in [5°, 15°] |

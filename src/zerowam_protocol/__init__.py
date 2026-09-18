@@ -18,9 +18,18 @@ benchmark, no channel name, no simulator and no model.
 - `zerowam_protocol.bundle`: the demonstration bundle a benchmark writes once per unit.
 - `zerowam_protocol.result`: the result a benchmark writes for every evaluated unit.
 - `zerowam_protocol.stubs`: `ZeroPolicy` and `ReplayPolicy`, the model-free smoke tests.
+- `zerowam_protocol.conformance`: the checks a fork, a runtime or the harness runs to prove it
+  holds all of the above.
 """
 
-from .errors import BundleError, BundleSchemaError, PolicySpecError, PolicyUnavailable, WireError
+from .errors import (
+    BundleError,
+    BundleSchemaError,
+    ConformanceError,
+    PolicySpecError,
+    PolicyUnavailable,
+    WireError,
+)
 from .policy import ACTION_TYPES, Policy
 
 __version__ = "0.1.0.dev0"
@@ -29,6 +38,7 @@ __all__ = [
     "ACTION_TYPES",
     "BundleError",
     "BundleSchemaError",
+    "ConformanceError",
     "Policy",
     "PolicySpecError",
     "PolicyUnavailable",

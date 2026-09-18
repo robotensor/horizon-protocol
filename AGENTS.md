@@ -24,6 +24,9 @@ reads the results). A change here is a change to all of them.
 - `result.py` — `result.json`: `outcome` (`success`/`failure`/`void`), `void_cause`, and what
   produced it (the bundle digest, the task config, the fork commit, a stub, what was served).
 - `stubs.py` — `ZeroPolicy` and `ReplayPolicy`, the model-free smoke tests.
+- `conformance.py` — the suite a fork, a runtime or the harness runs against itself:
+  `check_action_spec`, `check_policy`, `check_served`, `check_bundle`, `check_result`, and the
+  `hold_still`, `demonstration` and `observation` they send.
 
 The wire, client and serve modules are ported from `robotensor/ICIL-competition-orchestrator`
 (`packages/icil-policy`, Apache-2.0); read the original before reworking one of them. What changed:

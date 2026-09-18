@@ -31,6 +31,18 @@ class BundleSchemaError(BundleError):
     """
 
 
+class ConformanceError(ValueError):
+    """A consumer that does not hold the contract, as `zerowam_protocol.conformance` found it.
+
+    It says the fork, runtime or harness under check breaks a rule this package states: a declared
+    space that is not Q3's, a policy whose answers cannot be executed, a bundle whose demonstration
+    cannot be sent, a result filed against another unit. It is what the conformance checks add; the
+    checks they wrap keep raising what they already raise (`BundleSchemaError`, `BundleError`, the
+    `ValueError` of `result.read`, `PolicyUnavailable`), so a caller that maps those to exit
+    statuses keeps mapping them.
+    """
+
+
 class PolicyUnavailable(RuntimeError):
     """The served policy refused, failed, timed out, hung up or answered nonsense.
 
