@@ -131,6 +131,12 @@ adopts one version set once. What a consumer must change:
   `scene_seed` or `private/scene.json` passed `read` before, although RoboTwin evaluates from them.
   `BUNDLE_VERSION` is 2, with `unit_id` and `action_spec` (Q3) required in `demo.json`. (#4)
 - A bundle's arrays are compressed: an uncompressed click_bell unit was 103 MB, compressed 22 MB.
+- The contract says what a policy's `close()` means under `serve --max-sessions N`: it ends the
+  session, not the policy - release the demonstration, the episode and whatever was cached for
+  them, keep what it cost to build, the weights above all - because the next client is served on
+  the same policy object. `policy.Policy`, `serve`'s "More than one unit" and the README say so.
+  A runtime that read it as an unload reloaded its whole checkpoint for every unit
+  (robotensor/zerowam-runtime#28). Wording only: no behaviour here changes.
 
 ### Fixed
 

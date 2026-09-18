@@ -28,7 +28,13 @@ values, and then, for as long as its one client is connected:
   a policy that samples should seed from it.
 - `act(observation)` answers one observation with at least `{"action": ...}`, one action of shape
   `(A,)` or a chunk of shape `(H, A)`, in the space `action_type` names.
-- `close()`, if the policy has it, is called when the client says `close`.
+- `close()`, if the policy has it, is called when the client says `close`. **It ends the session,
+  not the policy: release what the session held - the demonstration, the episode, whatever was
+  cached for them - and keep what it cost to build, the weights above all.** With
+  `serve --max-sessions N` the same policy object is handed to the next client, which arrives with
+  its own `hello`, its own demonstration and its own episodes, so a policy that unloads here pays
+  for the load again on every unit and grows its footprint over a long run. A policy with nothing
+  per-session to release needs no `close` at all.
 
 **The convention (decision Q3; `docs/conventions.md`, checked by `zerowam_protocol.conventions`).**
 Every pose number means the same thing on every benchmark, and **each benchmark fork converts** its

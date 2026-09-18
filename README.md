@@ -24,6 +24,11 @@ A policy is a plain class with `action_type`, `reset(seed)`, `set_demonstration(
 `act(observation)`; `close()` is optional. Arrays arrive read-only and go back as bool, integer or
 float numpy arrays.
 
+`close()` ends the session, not the policy: it releases what the session held - the demonstration,
+the episode, whatever was cached for them - and keeps what it cost to build, the weights above all.
+With `--max-sessions N` the next client is served on the same policy object, so a policy that
+unloads its model here reloads it for every unit.
+
 `--max-sessions N` serves N clients one after another, keeping the policy built for the first: a
 submission is evaluated over many units and its weights are loaded once. Each session releases what
 it held, so a server kept for a whole evaluation ends with the descriptors and threads it had after
