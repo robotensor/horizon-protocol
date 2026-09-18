@@ -67,9 +67,9 @@ def panda_spec():
     }
 
 
-def pose_row(arms: int = 2, gripper: float = 0.5):
+def pose_row(arms: int = 2, gripper: float = 0.5, seed: int = 3):
     """One state or action row in the Q3 layout: a unit quaternion and `g` for every arm."""
-    rng = np.random.default_rng(3)
+    rng = np.random.default_rng(seed)
     blocks = []
     for _ in range(arms):
         quaternion = rng.standard_normal(4)
@@ -78,18 +78,13 @@ def pose_row(arms: int = 2, gripper: float = 0.5):
     return np.concatenate(blocks)
 
 
-def demonstration(steps: int = 6, dims: int = 16, cameras=("head", "left_wrist")):
-    """A demonstration shaped like a RoboTwin one, at a native, uneven frame rate."""
+def demonstration(steps: int = 6, cameras=("head", "left_wrist")):
+    """A demonstration as a policy is given it (Q4): frames and times, at a native, uneven rate."""
     rng = np.random.default_rng(7)
     arrays = {
         f"frames_{camera}": rng.integers(0, 255, (steps, 8, 10, 3), np.uint8) for camera in cameras
     }
-    arrays.update(
-        qpos=rng.standard_normal((steps, dims)),
-        endpose=rng.standard_normal((steps, 16)),
-        actions=rng.standard_normal((steps - 1, dims)),
-        times=np.cumsum(rng.uniform(0.05, 0.08, steps)),
-    )
+    arrays["times"] = np.cumsum(rng.uniform(0.05, 0.08, steps))
     info = {
         "cameras": list(cameras),
         "embodiment": "aloha-agilex",
@@ -98,6 +93,19 @@ def demonstration(steps: int = 6, dims: int = 16, cameras=("head", "left_wrist")
         "control_hz": 250.0 / 15.0,
     }
     return arrays, info
+
+
+def expert(steps: int = 6, dims: int = 14):
+    """The demonstrator's record, shaped like RoboTwin's: it stays under `private/` (Q4)."""
+    rng = np.random.default_rng(5)
+    qpos = rng.standard_normal((steps, dims))
+    endpose = np.stack([pose_row(2, seed=step) for step in range(steps)])
+    return {
+        "qpos": qpos,
+        "endpose": endpose,
+        "actions": qpos[1:].copy(),
+        "ee_actions": endpose[1:].copy(),
+    }
 
 
 def observation(dims: int = 16, cameras=("head", "left_wrist")):
@@ -126,16 +134,20 @@ def manifest(**overrides):
 
 
 def write_bundle(out_dir: Path, *, steps: int = 6, **overrides):
-    """A complete bundle on disk, with an expert trajectory under `private/`."""
+    """A complete bundle on disk, with the demonstrator's record under `private/`.
+
+    `(manifest, public arrays, info, the demonstrator's record)`.
+    """
     arrays, info = demonstration(steps=steps)
+    record_arrays = expert(steps=steps)
     record = bundle.write(
         out_dir,
         manifest=manifest(**overrides),
         arrays=arrays,
         private={"task": "click_bell", "scene_seed": 918273},
     )
-    np.savez(Path(out_dir) / bundle.PRIVATE_DIR / "expert.npz", actions=arrays["actions"].copy())
-    return record, arrays, info
+    np.savez(Path(out_dir) / bundle.PRIVATE_DIR / "expert.npz", **record_arrays)
+    return record, arrays, info, record_arrays
 
 
 @dataclass

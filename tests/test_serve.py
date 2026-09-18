@@ -41,7 +41,7 @@ def test_hello_then_an_episode(zero_policy):
 
 
 def test_the_demonstration_from_a_bundle_reaches_the_policy(tmp_path):
-    _, arrays, info = write_bundle(tmp_path / "unit")
+    _, arrays, info, _ = write_bundle(tmp_path / "unit")
     _, read_arrays = bundle.read(tmp_path / "unit")
     served = serve(tmp_path / "serve", "zerowam_protocol.stubs:ZeroPolicy")
     try:
@@ -54,7 +54,7 @@ def test_the_demonstration_from_a_bundle_reaches_the_policy(tmp_path):
 
 
 def test_replay_stub_returns_the_expert_actions(tmp_path):
-    _, arrays, info = write_bundle(tmp_path / "unit")
+    _, arrays, info, record = write_bundle(tmp_path / "unit")
     expert = tmp_path / "unit" / bundle.PRIVATE_DIR / "expert.npz"
     served = serve(tmp_path / "serve", "zerowam_protocol.stubs:ReplayPolicy", f"expert={expert}")
     try:
@@ -66,8 +66,8 @@ def test_replay_stub_returns_the_expert_actions(tmp_path):
     finally:
         served.close()
 
-    assert np.allclose(first, arrays["actions"][0])
-    assert np.allclose(second, arrays["actions"][1])
+    assert np.allclose(first, record["actions"][0])
+    assert np.allclose(second, record["actions"][1])
 
 
 def test_a_policy_error_is_an_error_reply_and_the_server_keeps_serving(tmp_path):

@@ -9,21 +9,21 @@ This page is for someone who adds a benchmark (a fork that writes bundles) or a 
 
 **Status.** This page describes the contract as of bundle version 2. The items that build it:
 
-| Item | Repository | What it adds |
-|---|---|---|
-| P12 | this repo | the allow-list |
-| P1 | this repo | `BundleSchemaError` at write and read |
-| P13 | this repo | the check at send |
-| P14 | this repo | the input vocabulary |
-| P10 | this repo | conformance |
-| P11 | this repo | `info` keys |
-| P4 | this repo | the optional `stub_policy` field in `result.json` |
-| RT3, RT9, RT11, RT16 | RoboTwin fork | exit 2, stub marking, `info` keys, tests |
-| RC1, RC11 | robocasa fork | exit 2, tests |
-| RU9, RU15 | zerowam-runtime | runtime and recipes |
-| C3, C10, C12 | zerowam-competition | competition |
+| Item | Repository | What it adds | Status |
+|---|---|---|---|
+| P12 | this repo | the allow-list | landed: `bundle.write`, `bundle.read` and `public_arrays` |
+| P1 | this repo | `BundleSchemaError` at write and read | landed for the allow-list; the frames, `times` and camera rules are pending |
+| P13 | this repo | the check at send | pending |
+| P14 | this repo | the input vocabulary | pending |
+| P10 | this repo | conformance | pending |
+| P11 | this repo | `info` keys | pending |
+| P4 | this repo | the optional `stub_policy` field in `result.json` | pending |
+| RT3, RT9, RT11, RT16 | RoboTwin fork | exit 2, stub marking, `info` keys, tests | pending |
+| RC1, RC11 | robocasa fork | exit 2, tests | pending |
+| RU9, RU15 | zerowam-runtime | runtime and recipes | pending |
+| C3, C10, C12 | zerowam-competition | competition | pending |
 
-Until those items land, the code still makes `qpos`, `endpose` and `actions` public (`src/zerowam_protocol/bundle.py:73` at `c0bb625`), and must not be read as compliant.
+Until P13 lands, `RemotePolicy.set_demonstration` does not check the allow-list: a fork MUST send `bundle.public_arrays` of what `bundle.read` returned, and nothing else.
 
 ---
 

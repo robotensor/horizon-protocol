@@ -3,10 +3,12 @@
 A policy is a plain class. The server builds it once, from `module:Class` and the `--policy-arg`
 values, and then, for as long as its one client is connected:
 
-- `set_demonstration(arrays, info)` hands it the one demonstration, as named arrays. The names are
-  the benchmark's (`frames_<camera>`, `times`, and, when the axis exposes them, `qpos`, `endpose`
-  and `actions`); `info` carries public fields only, such as the camera names, the control rate and
-  the action space. Privileged scene data never reaches a policy.
+- `set_demonstration(arrays, info)` hands it the one demonstration (decision Q4,
+  `docs/demonstrations.md`): its video, `frames_<camera>` for each demonstration camera, and its
+  `times`, and nothing else. The demonstrator's state and actions (`qpos`, `endpose`, `actions`,
+  ...) never reach a policy, on any axis. `info` carries public fields only, such as the
+  demonstration cameras, the generic instruction, a HumanGen video's own caption where there is one,
+  and the action space. Privileged scene data never reaches a policy.
 - `reset(seed)` starts an episode. The same seed is given to every model evaluated on that unit, so
   a policy that samples should seed from it.
 - `act(observation)` answers one observation with at least `{"action": ...}`, one action of shape

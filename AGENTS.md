@@ -46,8 +46,9 @@ weights only and the runtime is ours.
   number follows, the `action_spec` vocabulary a benchmark declares its state channel in, the public
   allow-list of a bundle (`frames_*`, `times`) and the demonstration-input vocabulary a family
   declares from.
-- No privileged data crosses the socket. A bundle's `private/` is never read by the code that talks
-  to a policy; `bundle.public_arrays` is the only thing given to one.
+- No privileged data crosses the socket. Nothing under `private/` is sent to a policy; only
+  `ReplayPolicy` is handed `expert.npz`, by the harness; the demonstrator's state and actions are
+  privileged (Q4). `bundle.public_arrays` (`frames_*`, `times`) is the only thing given to one.
 - A demonstration is stored at the benchmark's native frame rate, with `times` beside it. Never
   resample here: a bundle serves every model, and each runtime resamples for itself.
 - One bundle is one unit and is immutable once written. `demo.json` hashes its files; `read`
