@@ -78,6 +78,12 @@ adopts one version set once. What a consumer must change:
 
 ### Added
 
+- A model family's demonstration inputs are checked against one vocabulary, beside the allow-list:
+  `bundle.DEMONSTRATION_INPUTS = ("video", "caption")`, `bundle.PROMPT_LANGUAGES = ("none",
+  "generic", "demonstration_caption")` and `bundle.check_demonstration_inputs(inputs) -> list[str]`,
+  which refuses a missing `video`, `proprio`, `actions`, `task` and `demonstration_caption` without
+  `caption`, each citing Q4. The check lived in zerowam-runtime, which binds only Zero-WAM; the
+  competition's config check and every family loader call this one. (#17)
 - `bundle.write` records `n_frames`, `duration_s` and `fps` in `demo.json`, derived from `times`
   alone by `bundle.frame_timing`: `fps` is `(T - 1) / duration_s`, rounded to 6 decimals, when every
   interval is within `UNIFORM_RTOL` of the mean, and `null` when the times are uneven, a single
