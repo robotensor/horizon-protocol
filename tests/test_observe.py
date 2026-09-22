@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from zerowam_protocol import observe
+from vicl_protocol import observe
 
 
 def _observation(value: float, cameras=("head", "left_wrist")):

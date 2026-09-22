@@ -6,7 +6,7 @@ from multiprocessing.connection import Pipe
 import numpy as np
 import pytest
 
-from zerowam_protocol import WireError, wire
+from vicl_protocol import WireError, wire
 
 
 def round_trip(op, fields=None, arrays=None, **recv_kwargs):

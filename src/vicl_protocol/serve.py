@@ -1,6 +1,6 @@
-"""`python -m zerowam_protocol.serve`: one policy, served to one client at a time.
+"""`python -m vicl_protocol.serve`: one policy, served to one client at a time.
 
-    python -m zerowam_protocol.serve --policy MODULE:CLASS [--policy-arg K=V ...] \
+    python -m vicl_protocol.serve --policy MODULE:CLASS [--policy-arg K=V ...] \
         --address ADDR --authkey-env NAME [--log-file PATH] [--idle-timeout-s SECONDS] \
         [--max-sessions N]
 
@@ -15,10 +15,10 @@ libraries included) are appended to that file, and its tail travels with every e
 `honors_observe_every`; the policy is built on the first one that may drive it - `MODULE:CLASS`
 imported and constructed with the `--policy-arg` values - and the reply carries `protocol`,
 `action_type`, `observe_every`, `policy` and, where the policy exposes one, `served` (what this
-process serves: `zerowam_protocol.policy.SERVED_KEYS`, which the benchmark records in its result).
+process serves: `vicl_protocol.policy.SERVED_KEYS`, which the benchmark records in its result).
 From then on each `reset`, `prompt` and `act` calls the policy once and answers `ok` or `action`.
 A `prompt`'s arrays are held to the demonstration allow-list (`frames_<camera>` and `times`,
-decision Q4) and its `info` to the keys decision Q14 names (`zerowam_protocol.info`), here as well
+decision Q4) and its `info` to the keys decision Q14 names (`vicl_protocol.info`), here as well
 as in the client, so no client can hand a policy the demonstrator's record or another `info`,
 whether or not it is `RemotePolicy`. The session survives either refusal: the message was the
 benchmark's error, not the policy's.
@@ -97,7 +97,7 @@ from .errors import BundleSchemaError, PolicySpecError, WireError
 from .info import check_info
 from .policy import ACTION_TYPES, checked_served
 
-log = logging.getLogger("zerowam_protocol.serve")
+log = logging.getLogger("vicl_protocol.serve")
 
 EXIT_OK = 0
 EXIT_FAILED = 1
@@ -212,7 +212,7 @@ class _HangupWatch:
         self._stopped = threading.Event()
         self._op = ""
         self._thread = threading.Thread(
-            target=self._run, name="zerowam-protocol-hangup-watch", daemon=True
+            target=self._run, name="vicl-protocol-hangup-watch", daemon=True
         )
         self._thread.start()
 
@@ -488,9 +488,7 @@ def _redirect_output(path: Path) -> None:
 def _configure_logging() -> None:
     handler = logging.StreamHandler(sys.stderr)
     handler.setFormatter(
-        logging.Formatter(
-            "%(asctime)s zerowam_protocol.serve[%(process)d] %(levelname)s %(message)s"
-        )
+        logging.Formatter("%(asctime)s vicl_protocol.serve[%(process)d] %(levelname)s %(message)s")
     )
     log.handlers[:] = [handler]
     log.setLevel(logging.INFO)
@@ -562,7 +560,7 @@ def _mismatch_problems(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="python -m zerowam_protocol.serve",
+        prog="python -m vicl_protocol.serve",
         description="Serve a policy to one client, then exit.",
         epilog=(
             "exit status:\n"
@@ -653,7 +651,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             _redirect_output(log_file)
         except OSError as exc:
-            print(f"zerowam_protocol.serve: cannot write the log file: {exc}", file=sys.stderr)
+            print(f"vicl_protocol.serve: cannot write the log file: {exc}", file=sys.stderr)
             return EXIT_USAGE
     _configure_logging()
 

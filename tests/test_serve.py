@@ -13,14 +13,14 @@ import policies_for_tests
 import pytest
 from protocol_testing import demonstration, observation, serve, write_bundle
 
-from zerowam_protocol import PolicyUnavailable, bundle, conventions, observe, wire
-from zerowam_protocol.client import RemotePolicy
-from zerowam_protocol.serve import build_policy, parse_policy
+from vicl_protocol import PolicyUnavailable, bundle, conventions, observe, wire
+from vicl_protocol.client import RemotePolicy
+from vicl_protocol.serve import build_policy, parse_policy
 
 
 @pytest.fixture
 def zero_policy(tmp_path):
-    served = serve(tmp_path, "zerowam_protocol.stubs:ZeroPolicy")
+    served = serve(tmp_path, "vicl_protocol.stubs:ZeroPolicy")
     yield served
     served.close()
 
@@ -34,7 +34,7 @@ def test_hello_then_an_episode(zero_policy):
     action = zero_policy.policy.act(observation())["action"]
 
     assert greeting["action_type"] == "ee"
-    assert greeting["policy"] == "zerowam_protocol.stubs:ZeroPolicy"
+    assert greeting["policy"] == "vicl_protocol.stubs:ZeroPolicy"
     assert greeting["protocol"] == 3
     assert greeting["observe_every"] == 0  # a policy that does not declare it is sent one frame
     assert zero_policy.policy.observe_every == 0
@@ -45,7 +45,7 @@ def test_hello_then_an_episode(zero_policy):
 def test_the_demonstration_from_a_bundle_reaches_the_policy(tmp_path):
     _, arrays, info, _ = write_bundle(tmp_path / "unit")
     _, read_arrays = bundle.read(tmp_path / "unit")
-    served = serve(tmp_path / "serve", "zerowam_protocol.stubs:ZeroPolicy")
+    served = serve(tmp_path / "serve", "vicl_protocol.stubs:ZeroPolicy")
     try:
         served.policy.hello()
         served.policy.set_demonstration(bundle.public_arrays(read_arrays), info)
@@ -60,7 +60,7 @@ def test_a_client_that_is_not_remotepolicy_cannot_hand_a_policy_the_experts_reco
     allow-list as it holds its `info` to Q14, so the demonstrator's record cannot reach a policy
     from a fork's own client. The session survives: the message was the benchmark's error."""
     _, arrays, info, record = write_bundle(tmp_path / "unit")
-    served = serve(tmp_path / "serve", "zerowam_protocol.stubs:ZeroPolicy", max_sessions=2)
+    served = serve(tmp_path / "serve", "vicl_protocol.stubs:ZeroPolicy", max_sessions=2)
     served.policy.hello()
     served.policy.close()  # session one, so the raw client below gets session two
     conn = mp_connection.Client(served.address, family="AF_UNIX", authkey=served.authkey)
@@ -96,7 +96,7 @@ def test_a_client_that_is_not_remotepolicy_cannot_hand_a_policy_the_experts_reco
 def test_replay_stub_returns_the_expert_actions(tmp_path):
     _, arrays, info, record = write_bundle(tmp_path / "unit")
     expert = tmp_path / "unit" / bundle.PRIVATE_DIR / "expert.npz"
-    served = serve(tmp_path / "serve", "zerowam_protocol.stubs:ReplayPolicy", f"expert={expert}")
+    served = serve(tmp_path / "serve", "vicl_protocol.stubs:ReplayPolicy", f"expert={expert}")
     try:
         served.policy.hello()
         served.policy.set_demonstration(bundle.public_arrays(arrays), info)
@@ -146,7 +146,7 @@ def test_a_policy_that_cannot_be_built_ends_the_session(tmp_path):
 
 def test_one_server_takes_several_clients_and_keeps_its_policy(tmp_path):
     """A submission is evaluated over many units; its weights are loaded once, not per unit."""
-    served = serve(tmp_path, "zerowam_protocol.stubs:ZeroPolicy", max_sessions=3)
+    served = serve(tmp_path, "vicl_protocol.stubs:ZeroPolicy", max_sessions=3)
     arrays, info = demonstration()
     client = served.policy  # the helper is already connected: that is session one
     try:
@@ -167,7 +167,7 @@ def test_one_server_takes_several_clients_and_keeps_its_policy(tmp_path):
 
 
 def test_a_server_that_has_served_its_clients_stops_listening(tmp_path):
-    served = serve(tmp_path, "zerowam_protocol.stubs:ZeroPolicy", max_sessions=1, timeout_s=5.0)
+    served = serve(tmp_path, "vicl_protocol.stubs:ZeroPolicy", max_sessions=1, timeout_s=5.0)
     served.policy.hello()
     served.policy.close()
     served.process.wait(timeout=20)
@@ -178,7 +178,7 @@ def test_a_server_that_has_served_its_clients_stops_listening(tmp_path):
 
 def test_parse_policy_and_build_policy():
     assert parse_policy("pkg.mod:Class") == ("pkg.mod", "Class")
-    policy = build_policy("zerowam_protocol.stubs:ZeroPolicy", {"state_channel": "qpos"})
+    policy = build_policy("vicl_protocol.stubs:ZeroPolicy", {"state_channel": "qpos"})
     assert policy.act({"qpos": np.zeros(7)})["action"].shape == (7,)
 
 

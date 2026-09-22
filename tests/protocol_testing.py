@@ -13,10 +13,10 @@ from pathlib import Path
 
 import numpy as np
 
-from zerowam_protocol import bundle
-from zerowam_protocol.client import RemotePolicy
+from vicl_protocol import bundle
+from vicl_protocol.client import RemotePolicy
 
-AUTHKEY_ENV = "ZEROWAM_TEST_AUTHKEY"
+AUTHKEY_ENV = "VICL_TEST_AUTHKEY"
 
 #: A number JSON carries and a double cannot hold: `json.loads("1" + "0" * 400)` is exactly this
 #: Python int. `math.isfinite(it)` and `float(it)` raise `OverflowError`, which is no `ValueError`
@@ -272,7 +272,7 @@ def serve(
     argv = [
         sys.executable,
         "-m",
-        "zerowam_protocol.serve",
+        "vicl_protocol.serve",
         "--policy",
         policy,
         "--address",

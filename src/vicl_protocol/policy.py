@@ -9,7 +9,7 @@ values, and then, for as long as its one client is connected:
   ...) never reach a policy, on any axis. Privileged scene data never reaches a policy.
 
   `info` carries public fields only, and its keys are the protocol's (decision Q14,
-  `zerowam_protocol.info`, which both ends check on every `prompt`):
+  `vicl_protocol.info`, which both ends check on every `prompt`):
 
   | Key | What a policy is told |
   |---|---|
@@ -36,7 +36,7 @@ values, and then, for as long as its one client is connected:
   for the load again on every unit and grows its footprint over a long run. A policy with nothing
   per-session to release needs no `close` at all.
 
-**The convention (decision Q3; `docs/conventions.md`, checked by `zerowam_protocol.conventions`).**
+**The convention (decision Q3; `docs/conventions.md`, checked by `vicl_protocol.conventions`).**
 Every pose number means the same thing on every benchmark, and **each benchmark fork converts** its
 simulator's values to it, in both directions:
 
@@ -140,10 +140,10 @@ class Policy(Protocol):
 
     Three members are optional, so none is declared here: a `runtime_checkable` Protocol checks
     every member it declares, and declaring an optional one would reject the policies that leave it
-    out - `zerowam_protocol.stubs`' own included.
+    out - `vicl_protocol.stubs`' own included.
 
     - `observe_every: int` - record an observation every N actions of a chunk and send them with
-      the next `act` (`zerowam_protocol.observe`). 0, or absent, is one observation per `act`. The
+      the next `act` (`vicl_protocol.observe`). 0, or absent, is one observation per `act`. The
       server reads it with `getattr` and repeats it at `hello`, and refuses a client that has not
       said it honours a cadence above 0.
     - `served: Mapping[str, Any]` - what this process serves (`SERVED_KEYS`: the family's sha and

@@ -3,9 +3,9 @@ requires = ["hatchling>=1.25"]
 build-backend = "hatchling.build"
 
 [project]
-name = "zerowam-protocol"
+name = "vicl-protocol"
 version = "0.1.0.dev0"
-description = "The Zero-WAM competition's protocol: a policy served in its own process, and the demonstration bundle and result files around it."
+description = "The Video-ICL competition's protocol: a policy served in its own process, and the demonstration bundle and result files around it."
 readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.10"
@@ -16,7 +16,7 @@ dependencies = ["numpy>=1.23"]
 dev = ["pytest>=8", "ruff==0.16.7"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/zerowam_protocol"]
+packages = ["src/vicl_protocol"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

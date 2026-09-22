@@ -1,17 +1,17 @@
-# zerowam-protocol — the socket and the files of the Zero-WAM competition
+# vicl-protocol — the socket and the files of the Video-ICL competition
 
-Python 3.10, package `zerowam_protocol` under `src/`. It is both ends of the socket between a
+Python 3.10, package `vicl_protocol` under `src/`. It is both ends of the socket between a
 benchmark and a served model, plus the two file formats they exchange: the demonstration bundle and
 the unit result. It holds **no benchmark, no model and no competition logic**.
 
-Consumers: `robotensor/RoboTwin` and `robotensor/robocasa` (the `robotensor_bench` packages),
-`robotensor/zerowam-runtime` (serves the model), `robotensor/zerowam-competition` (builds the pool,
+Consumers: `robotensor/RoboTwin-VICL` and `robotensor/RoboCasa-VICL` (the `robotensor_bench` packages),
+`robotensor/vicl-runtime-zerowam` (serves the model), `robotensor/vicl-competition` (builds the pool,
 reads the results). A change here is a change to all of them.
 
 ## The pieces
 
 - `policy.py` — `Policy`, what a runtime implements, and `ACTION_TYPES`.
-- `serve.py` — `python -m zerowam_protocol.serve --policy MODULE:CLASS`, one policy, one client.
+- `serve.py` — `python -m vicl_protocol.serve --policy MODULE:CLASS`, one policy, one client.
 - `client.py` — `RemotePolicy`, what a benchmark drives it with. Every failure is `PolicyUnavailable`.
 - `wire.py` — the message format: a JSON header frame, then one raw little-endian frame per array.
 - `observe.py` — what a policy that declares `observe_every` is sent between chunks: `stack`,
@@ -43,7 +43,7 @@ weights only and the runtime is ours.
 
 - **The conventions are `docs/conventions.md` (decision Q3) and what a policy receives is
   `docs/demonstrations.md` (decision Q4).** Code here, in the forks and in every runtime follows them;
-  a change to either is a new decision in `robotensor/zerowam-competition` `docs/decisions.md`, then
+  a change to either is a new decision in `robotensor/vicl-competition` `docs/decisions.md`, then
   a contract change here.
 - The wire carries named arrays and JSON fields only. Never pickle; object dtypes are refused at
   both ends. Both halves of the socket run beside foreign pins, so the only dependency is numpy.
