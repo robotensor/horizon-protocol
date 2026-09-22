@@ -6,6 +6,18 @@ All notable changes to this distribution. The format follows
 
 ## [Unreleased]
 
+### Breaking: the distribution is `vicl-protocol`
+
+The competition is renamed VICL (Video In-Context Learning), so `zerowam` names only the Zero-WAM
+model. Nothing on the wire or in a file changed: `PROTOCOL_VERSION`, `BUNDLE_VERSION` and
+`RESULT_VERSION` are as they were. What a consumer must change:
+
+- The distribution is `vicl-protocol` (repository `robotensor/vicl-protocol`) and the package
+  `vicl_protocol`: `import vicl_protocol`, `python -m vicl_protocol.serve`.
+- The authkey the docs and tests use is `VICL_AUTHKEY` (the server still takes any name through
+  `--authkey-env`). The CI token is `VICL_CI_TOKEN`.
+- A family name stays the model's: `served.family` is still `zerowam` for the Zero-WAM runtime.
+
 ### Breaking: bundle v2, result v2, protocol 3
 
 One contract release, so that every consumer (both forks, zerowam-runtime, zerowam-competition)

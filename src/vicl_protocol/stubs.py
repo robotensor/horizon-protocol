@@ -30,10 +30,10 @@ a floor to score against, not a pose to trust to a tenth of a millimetre. (#15)
 `ReplayPolicy` is a test instrument, not a competitor: it is given a privileged file on purpose,
 by the harness that already holds it. Nothing in the competition serves it to score a submission.
 
-    python -m zerowam_protocol.serve --policy zerowam_protocol.stubs:ReplayPolicy \\
+    python -m vicl_protocol.serve --policy vicl_protocol.stubs:ReplayPolicy \\
         --policy-arg expert=pool/rts-click_bell-000/private/expert.npz \\
         --policy-arg observe_every=4 \\
-        --address 127.0.0.1:7100 --authkey-env ZEROWAM_AUTHKEY
+        --address 127.0.0.1:7100 --authkey-env VICL_AUTHKEY
 
 That plays `ee_actions`; `--policy-arg key=NAME` names another array of the same npz, for a harness
 replaying something else on purpose. `--policy-arg` values arrive as strings, so both policies take
@@ -130,7 +130,7 @@ class ReplayPolicy:
             raise ValueError(f"{expert}: {key!r} is {actions.shape}, not a (T, A) trajectory")
         self.action_type = str(action_type)
         #: How often the benchmark records an observation while a chunk runs, and so how long a
-        #: chunk this policy answers with (`zerowam_protocol.observe`).
+        #: chunk this policy answers with (`vicl_protocol.observe`).
         self.observe_every = _cadence(observe_every)
         self.actions = actions
         self.index = 0

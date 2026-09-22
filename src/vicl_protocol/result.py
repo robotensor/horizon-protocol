@@ -37,10 +37,10 @@ keys but never one of these (`REQUIRED_KEYS`), so nothing can overwrite an outco
   without its video still reads.
 - `error`: what went wrong, as text, or `null`.
 - `stub_policy`: `null`, or `zero` or `replay` when the unit was run against a stub
-  (`zerowam_protocol.stubs`) instead of a submission. The competition refuses to score such a
+  (`vicl_protocol.stubs`) instead of a submission. The competition refuses to score such a
   result outside a dry run (Q4).
 - `served`: `null`, or the mapping the server's reply to `hello` said it served (protocol 3), which
-  the fork records unchanged: `zerowam_protocol.policy.SERVED_KEYS` (`family_sha256`,
+  the fork records unchanged: `vicl_protocol.policy.SERVED_KEYS` (`family_sha256`,
   `family_version`, `knobs`, `weights_fingerprint`, `weights_sha256`) and nothing else, `knobs` a
   mapping as `policy.checked_served` holds it at `hello`, so what an operator's `--knobs` resolved
   to is in the record of every unit it produced.
@@ -90,7 +90,7 @@ VOID_CAUSES = ("harness", "runtime")
 #: What `timing` holds, exactly: seconds spent building the scene, inside policy calls, executing
 #: actions, and in the whole unit.
 TIMING_KEYS = ("setup_s", "policy_s", "sim_s", "total_s")
-#: The stubs a result may say it was produced with (`zerowam_protocol.stubs`: `ZeroPolicy`,
+#: The stubs a result may say it was produced with (`vicl_protocol.stubs`: `ZeroPolicy`,
 #: `ReplayPolicy`).
 STUB_POLICIES = ("zero", "replay")
 

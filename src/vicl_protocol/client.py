@@ -9,7 +9,7 @@
         action = policy.act(observation)["action"]  # (A,) or a chunk (H, A)
 
 When the policy's `observe_every` is N > 0, `observation` is the stack of observations recorded
-every N actions since the last `act` (`zerowam_protocol.observe`), not the current one alone.
+every N actions since the last `act` (`vicl_protocol.observe`), not the current one alone.
 
 **`hello` says what this benchmark does, and the server refuses a policy it cannot drive.**
 `action_types` names the action types the benchmark executes (`ee` by default, the competition's)
@@ -17,13 +17,13 @@ and `honors_observe_every` says whether it records the observations a chunk prod
 to the cautious answer, so a benchmark that has not adopted protocol 3 is turned away rather than
 handed a policy it would drive wrongly: an unstacked observation sent to a policy that asked for a
 stack is silently the wrong input. The reply may carry `served`, what the server says this process
-serves (`zerowam_protocol.policy.SERVED_KEYS`: the family's sha and version, the resolved knobs,
+serves (`vicl_protocol.policy.SERVED_KEYS`: the family's sha and version, the resolved knobs,
 the weights' fingerprint and sha); it is kept as `self.served`, and a benchmark records it in
 `result.json` unchanged, so every result says what produced it. Both ends check the other's
 `protocol` and refuse anything but this one.
 
 It needs numpy and the standard library only. A benchmark imports it; the competitor's side runs
-`python -m zerowam_protocol.serve`.
+`python -m vicl_protocol.serve`.
 
 **Every way the policy can fail raises `PolicyUnavailable`**: an error reply, a call that does not
 finish within its own budget, a server that hangs up or was never there, a key it refuses, a reply
@@ -93,7 +93,7 @@ RETRY_S = 0.05
 
 
 class RemotePolicy:
-    """A policy served by `python -m zerowam_protocol.serve` at `address`, reached with
+    """A policy served by `python -m vicl_protocol.serve` at `address`, reached with
     `authkey`."""
 
     def __init__(
@@ -150,17 +150,17 @@ class RemotePolicy:
         #: serve a policy whose own action type is not among them.
         self.action_types = tuple(kinds)
         #: Whether this benchmark records the observations a policy's `observe_every` asks for and
-        #: sends them stacked (`zerowam_protocol.observe`), declared at `hello`. A server refuses a
+        #: sends them stacked (`vicl_protocol.observe`), declared at `hello`. A server refuses a
         #: client that says no to a policy that asked for them, rather than let it run blind.
         self.honors_observe_every = honors_observe_every
         self.log_file = log_file
         #: The served policy's action type, known once `hello` has been answered.
         self.action_type: str | None = None
-        #: What the server said it served (`zerowam_protocol.policy.SERVED_KEYS`), or None. A
+        #: What the server said it served (`vicl_protocol.policy.SERVED_KEYS`), or None. A
         #: benchmark records it in `result.json` unchanged, so every result says what produced it.
         self.served: dict[str, Any] | None = None
         #: Record an observation every this many actions of a chunk (0: only the current one), known
-        #: once `hello` has been answered. `zerowam_protocol.observe` has the rule.
+        #: once `hello` has been answered. `vicl_protocol.observe` has the rule.
         self.observe_every = 0
         self._sock: socket.socket | None = None
         self._conn: Connection | None = None
@@ -184,7 +184,7 @@ class RemotePolicy:
         exposes one, `served`, which is also kept as `self.served`.
         """
         greeting = {
-            "client": f"zerowam-protocol {__version__}",
+            "client": f"vicl-protocol {__version__}",
             "protocol": wire.PROTOCOL_VERSION,
             "action_types": list(self.action_types),
             "honors_observe_every": self.honors_observe_every,

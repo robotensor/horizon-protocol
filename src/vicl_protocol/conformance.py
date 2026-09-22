@@ -26,7 +26,7 @@ so it runs beside a simulator's pins on one side and a model's pins on the other
   taken so that a policy answering from a buffer it reuses is caught here too; two NaNs in the same
   place are the same answer.
 - `check_served("module:Class", spec=...)` - the same policy through
-  `python -m zerowam_protocol.serve` and `RemotePolicy`, in two processes, and the server exits 0.
+  `python -m vicl_protocol.serve` and `RemotePolicy`, in two processes, and the server exits 0.
 - `check_bundle(bundle_dir)` - a directory against bundle v2, and the one thing reading it does not
   settle: the demonstration a policy would be given fits in one message. It is counted from the
   arrays' shapes, never by encoding them, so checking a bundle costs no copy of it.
@@ -39,7 +39,7 @@ can still be driven. Arrays go out read-only, as the server's do, so a policy th
 it was handed is caught here rather than on the first real unit - a demonstration handed in with
 `demo=` too, as a read-only view, which leaves the caller's own arrays as they were.
 
-    from zerowam_protocol import conformance
+    from vicl_protocol import conformance
 
     conformance.check_action_spec(my_fork.action_spec(robot))
     conformance.check_policy("my_runtime.policy:MyPolicy", spec=my_fork.action_spec(robot))
@@ -86,7 +86,7 @@ __all__ = [
 ]
 
 #: The environment variable `check_served` hands the server its key in, as `--authkey-env` names.
-AUTHKEY_ENV = "ZEROWAM_CONFORMANCE_AUTHKEY"
+AUTHKEY_ENV = "VICL_CONFORMANCE_AUTHKEY"
 #: How long a served check waits for the socket to appear, and for the server to exit.
 STARTUP_S = 30.0
 #: The frame rate `demonstration` records its times at. A real bundle's are the simulator's.
@@ -330,7 +330,7 @@ def check_served(
 ) -> dict[str, Any]:
     """Drive the same policy over the socket: a real server process, and a real `RemotePolicy`.
 
-    `python -m zerowam_protocol.serve --policy <policy>` is started on `address` (a Unix socket in
+    `python -m vicl_protocol.serve --policy <policy>` is started on `address` (a Unix socket in
     a temporary directory by default), greeted, given the demonstration, reset and driven for
     `calls` observations, exactly as a benchmark drives it; every answer is checked as
     `check_policy` checks it, and `repeat` means the same there as it does here. The client says it
@@ -354,7 +354,7 @@ def check_served(
         argv = [
             executable or sys.executable,
             "-m",
-            "zerowam_protocol.serve",
+            "vicl_protocol.serve",
             "--policy",
             str(policy),
             "--address",
@@ -402,7 +402,7 @@ def check_served(
     if status != serve.EXIT_OK:
         raise ConformanceError(
             f"the server exited {status}, not {serve.EXIT_OK}: the session did not end cleanly "
-            "(see python -m zerowam_protocol.serve --help for what the status means)"
+            "(see python -m vicl_protocol.serve --help for what the status means)"
         )
     return {
         "policy": str(policy),
@@ -692,7 +692,7 @@ def _address(address: str | None) -> Any:
     if address is not None:
         yield address
         return
-    with tempfile.TemporaryDirectory(prefix="zerowam-conformance-") as directory:
+    with tempfile.TemporaryDirectory(prefix="vicl-conformance-") as directory:
         yield str(Path(directory) / "policy.sock")
 
 

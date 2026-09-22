@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 from protocol_testing import TOO_BIG_FOR_A_DOUBLE, aloha_spec, panda_spec, pose_row
 
-from zerowam_protocol import conventions
+from vicl_protocol import conventions
 
 
 def test_the_convention_is_pinned():

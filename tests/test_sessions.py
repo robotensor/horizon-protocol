@@ -8,8 +8,8 @@ from pathlib import Path
 import pytest
 from protocol_testing import observation, serve
 
-from zerowam_protocol import PolicyUnavailable
-from zerowam_protocol.serve import EXIT_FAILED, EXIT_HUNGUP, EXIT_OK, EXIT_USAGE, build_parser
+from vicl_protocol import PolicyUnavailable
+from vicl_protocol.serve import EXIT_FAILED, EXIT_HUNGUP, EXIT_OK, EXIT_USAGE, build_parser
 
 SESSIONS = 50
 
@@ -30,7 +30,7 @@ needs_proc = pytest.mark.skipif(
 @needs_proc
 def test_a_kept_server_holds_no_more_after_fifty_sessions_than_after_one(tmp_path):
     """One unit is one session, and a full evaluation is 1,490 of them from one server."""
-    served = serve(tmp_path, "zerowam_protocol.stubs:ZeroPolicy", max_sessions=0)
+    served = serve(tmp_path, "vicl_protocol.stubs:ZeroPolicy", max_sessions=0)
     client = served.policy  # the helper is already connected: that is session one
     try:
         client.hello()
