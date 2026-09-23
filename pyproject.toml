@@ -3,8 +3,8 @@ requires = ["hatchling>=1.25"]
 build-backend = "hatchling.build"
 
 [project]
-name = "horizon-protocol"
-version = "0.1.0.dev0"
+name = "robotensor-horizon-protocol"
+version = "0.2.0"
 description = "The Robotensor Horizon competition's protocol: a policy served in its own process, and the demonstration bundle and result files around it."
 readme = "README.md"
 license = { text = "Apache-2.0" }
