@@ -13,10 +13,10 @@ import numpy as np
 import pytest
 from protocol_testing import observation, result_fields, serve
 
-from vicl_protocol import PolicyUnavailable, result, wire
-from vicl_protocol.client import RemotePolicy
-from vicl_protocol.policy import SERVED_KEYS, checked_served
-from vicl_protocol.serve import EXIT_FAILED
+from horizon_protocol import PolicyUnavailable, result, wire
+from horizon_protocol.client import RemotePolicy
+from horizon_protocol.policy import SERVED_KEYS, checked_served
+from horizon_protocol.serve import EXIT_FAILED
 
 
 class FakeServer:
@@ -111,7 +111,7 @@ def test_a_policy_that_observes_refuses_a_client_that_does_not(tmp_path):
 
 
 def test_a_policy_whose_action_type_the_benchmark_does_not_execute_is_refused(tmp_path):
-    served = serve(tmp_path, "vicl_protocol.stubs:ZeroPolicy", action_types=("qpos",))
+    served = serve(tmp_path, "horizon_protocol.stubs:ZeroPolicy", action_types=("qpos",))
     try:
         with pytest.raises(PolicyUnavailable, match="which this client does not execute"):
             served.policy.hello()
@@ -217,7 +217,7 @@ def test_checked_served_holds_knobs_to_a_mapping(knobs):
 
 
 def test_a_policy_without_served_says_nothing(tmp_path):
-    served = serve(tmp_path, "vicl_protocol.stubs:ZeroPolicy")
+    served = serve(tmp_path, "horizon_protocol.stubs:ZeroPolicy")
     try:
         greeting = served.policy.hello()
     finally:
@@ -251,7 +251,7 @@ def test_a_client_refuses_a_served_that_is_not_protocol_3s(tmp_path):
 
 def test_a_server_refuses_a_client_that_speaks_protocol_2(tmp_path):
     """The other half of the version check: a protocol 2 benchmark is turned away at hello."""
-    served = serve(tmp_path, "vicl_protocol.stubs:ZeroPolicy", max_sessions=2)
+    served = serve(tmp_path, "horizon_protocol.stubs:ZeroPolicy", max_sessions=2)
     served.policy.close()
     conn = mp_connection.Client(served.address, family="AF_UNIX", authkey=served.authkey)
     try:

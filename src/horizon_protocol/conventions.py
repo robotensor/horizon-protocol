@@ -1,6 +1,6 @@
 """The convention every number between a benchmark and a model follows (decision Q3), as code.
 
-`docs/conventions.md` is the specification, and robotensor/vicl-competition
+`docs/conventions.md` is the specification, and robotensor/horizon-competition
 `docs/decisions/q3-conventions.md` the decision behind it; this module is the part of them a program
 can check. Three layers meet on the socket, and only the first is unified:
 

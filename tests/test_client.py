@@ -11,8 +11,8 @@ import numpy as np
 import pytest
 from protocol_testing import demonstration, observation, serve
 
-from vicl_protocol import BundleError, BundleSchemaError, PolicyUnavailable, wire
-from vicl_protocol.client import RemotePolicy
+from horizon_protocol import BundleError, BundleSchemaError, PolicyUnavailable, wire
+from horizon_protocol.client import RemotePolicy
 
 HELLO = {"protocol": wire.PROTOCOL_VERSION, "action_type": "ee", "observe_every": 0}
 
@@ -125,7 +125,7 @@ def test_the_refusal_does_not_depend_on_the_connection(recorder):
 
 
 def test_a_served_policy_keeps_serving_after_a_refused_demonstration(tmp_path):
-    served = serve(tmp_path, "vicl_protocol.stubs:ZeroPolicy")
+    served = serve(tmp_path, "horizon_protocol.stubs:ZeroPolicy")
     arrays, info = demonstration()
     try:
         served.policy.hello()

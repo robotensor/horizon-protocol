@@ -1,6 +1,6 @@
-# vicl-protocol
+# horizon-protocol
 
-The protocol of the [Video-ICL competition](https://github.com/robotensor): the socket between a
+The protocol of the [Robotensor Horizon competition](https://github.com/robotensor): the socket between a
 benchmark and a served model, and the two files they exchange around it.
 
 A benchmark cannot import the model it evaluates — the simulator and the model pin different stacks,
@@ -9,15 +9,15 @@ distribution is both ends of that socket. It knows no benchmark, no channel name
 no model, and depends on numpy alone.
 
 ```bash
-pip install vicl-protocol
+pip install horizon-protocol
 ```
 
 ## Serving a policy
 
 ```bash
-export VICL_AUTHKEY=$(python -c 'import secrets; print(secrets.token_bytes(32).hex())')
-python -m vicl_protocol.serve --policy my_runtime:Policy --policy-arg checkpoint=/models/mine \
-    --address 127.0.0.1:7100 --authkey-env VICL_AUTHKEY --log-file policy.log
+export HORIZON_AUTHKEY=$(python -c 'import secrets; print(secrets.token_bytes(32).hex())')
+python -m horizon_protocol.serve --policy my_runtime:Policy --policy-arg checkpoint=/models/mine \
+    --address 127.0.0.1:7100 --authkey-env HORIZON_AUTHKEY --log-file policy.log
 ```
 
 A policy is a plain class with `action_type`, `reset(seed)`, `set_demonstration(arrays, info)` and
@@ -48,7 +48,7 @@ started again.
 ## Driving one
 
 ```python
-from vicl_protocol.client import RemotePolicy
+from horizon_protocol.client import RemotePolicy
 
 with RemotePolicy(
     "127.0.0.1:7100",
@@ -68,7 +68,7 @@ with RemotePolicy(
 
 A policy that must see what its own chunk did declares `observe_every = N`. The benchmark then
 records an observation after every N-th action and sends them, stacked, with the next `act`
-(`vicl_protocol.observe.stack`); the first `act` of an episode carries the initial observation
+(`horizon_protocol.observe.stack`); the first `act` of an episode carries the initial observation
 alone. A chunk whose length is not a multiple of N is refused (`observe.check_chunk`).
 
 `PROTOCOL_VERSION` is 3, and both ends refuse anything else at `hello`. The client's greeting says
@@ -79,7 +79,7 @@ would run blind. Both declarations default to the cautious answer (`("ee",)`, `F
 benchmark says what it does deliberately.
 
 The reply may carry `served`, what the server says this process serves —
-`vicl_protocol.policy.SERVED_KEYS`: `family_sha256`, `family_version`, `knobs`,
+`horizon_protocol.policy.SERVED_KEYS`: `family_sha256`, `family_version`, `knobs`,
 `weights_fingerprint`, `weights_sha256` — which a policy exposes as an attribute of its own. It is
 kept as `policy.served`, and the benchmark records it in `result.json` unchanged, so every result
 says what produced it, an operator's resolved knobs included. Its values are plain JSON: a knob
@@ -99,7 +99,7 @@ Every way the policy can fail — an error reply, a timeout, a hang-up, a malfor
 `PolicyUnavailable`, and the benchmark decides what it costs the unit.
 
 The `info` beside a demonstration carries the keys decision Q14 names, and both ends check them
-(`vicl_protocol.info.check_info`):
+(`horizon_protocol.info.check_info`):
 
 | Key | What it says |
 |---|---|
@@ -135,7 +135,7 @@ Two arms go left then right (A = 16). A one-armed robot is a single block (A = 8
 `arms: ["right"]`; the name is a label on the wire and never picks a model slot, which each model
 runtime's own table does (Zero-WAM puts a single arm in its slot 0). The benchmark declares what is
 native to its robot (frame, tool, execution, gripper semantics) in `info.action_spec`;
-`vicl_protocol.conventions` holds the constants and the checks (`check_action_spec`,
+`horizon_protocol.conventions` holds the constants and the checks (`check_action_spec`,
 `check_chunk`, `check_observation`, `arm_slices`, `same_rotation`).
 
 Two pages are the contract every benchmark and every model family implements; read them before
@@ -148,7 +148,7 @@ adding either:
   (video frames, `times`, and a HumanGen video's caption) and what stays under `private/` (the
   demonstrator's state and actions) (decision Q4).
 
-Both decisions are recorded in `robotensor/vicl-competition` `docs/decisions.md`.
+Both decisions are recorded in `robotensor/horizon-competition` `docs/decisions.md`.
 
 ## The demonstration bundle
 
@@ -163,7 +163,7 @@ One directory per unit, written once per epoch and handed unchanged to every sub
 ```
 
 ```python
-from vicl_protocol import bundle
+from horizon_protocol import bundle
 
 # A benchmark writes one; whatever else goes under private/ (a scene) is there before this call.
 bundle.write(unit_dir, manifest=manifest, arrays=demo_arrays, private=scene, expert=record)
@@ -215,7 +215,7 @@ not uniformly spaced (`bundle.frame_timing`).
 Every evaluated unit writes a `result.json`, however it ended:
 
 ```python
-from vicl_protocol import bundle, result
+from horizon_protocol import bundle, result
 
 # rollout.mp4, if any, is written into out_dir first: write hashes it.
 result.write(
@@ -253,7 +253,7 @@ server said it served.
 
 ## Smoke policies
 
-`vicl_protocol.stubs` holds two policies that need no model: `ZeroPolicy`, which holds still, and
+`horizon_protocol.stubs` holds two policies that need no model: `ZeroPolicy`, which holds still, and
 `ReplayPolicy`, which plays a bundle's `private/expert.npz` `ee_actions` — the demonstration in
 the Q3 convention — and must succeed. They are how a benchmark's whole
 chain — demonstration, hashing, scene restore, socket, result — is tested in minutes on a laptop
@@ -271,13 +271,13 @@ nothing else, so `observe_every` and `close` stay optional for `isinstance`.
 
 ## Conformance
 
-`vicl_protocol.conformance` is the suite a consumer runs against itself: one call per thing this
+`horizon_protocol.conformance` is the suite a consumer runs against itself: one call per thing this
 package promises, so a fork, a runtime and the harness check the contract the same way instead of
 each writing its own approximation of it. It ships in the wheel and, like the rest of the package,
 imports numpy and the standard library only.
 
 ```python
-from vicl_protocol import conformance
+from horizon_protocol import conformance
 
 conformance.check_action_spec(spec)  # C-P1: the space is Q3's; back come the arms' slices
 conformance.check_policy("my_runtime.policy:MyPolicy", spec=spec)  # built and driven, no socket
@@ -296,7 +296,7 @@ record = conformance.check_result("runs/rts-click_bell-000", bundle_dir="pool/rt
   from the global RNG fails - two NaNs in the same place are the same answer. Any exception the
   policy's own `reset`, `set_demonstration`, `act` or `close` raises comes back as
   `ConformanceError`, as it comes back as `PolicyUnavailable` over the socket.
-- `check_served` does the same through `python -m vicl_protocol.serve` and `RemotePolicy`, in
+- `check_served` does the same through `python -m horizon_protocol.serve` and `RemotePolicy`, in
   two processes - reset from `seed`, held to the `observe_every` the client read - and requires the
   server to exit 0; a server still running after the client closed is killed and refused.
 - Both refuse the declared space (C-P1), the demonstration arrays (Q4) and the `info` beside them

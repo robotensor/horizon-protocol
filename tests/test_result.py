@@ -12,7 +12,7 @@ from protocol_testing import (
     write_bundle,
 )
 
-from vicl_protocol import bundle, result
+from horizon_protocol import bundle, result
 
 
 def _rewrite(tmp_path, **changes):

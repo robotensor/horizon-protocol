@@ -24,7 +24,7 @@ for.
 
 **Ops.** A client sends `hello` (fields: `client`, `protocol`, `honors_observe_every`,
 `action_types`), `reset` (fields: `seed`), `prompt` (arrays: the demonstration; fields: `info`, the
-keys `vicl_protocol.info` names), `act` (arrays: the observation, or the stack of them a policy's
+keys `horizon_protocol.info` names), `act` (arrays: the observation, or the stack of them a policy's
 `observe_every` asks for) and `close`. The server answers each with `ok` (the reply to `hello`
 carries `protocol`, `action_type`, `observe_every`, `policy` and, where the policy exposes one,
 `served`), `action` (arrays, `action` among them) or `error` (fields: `type`, `message`,
@@ -69,7 +69,7 @@ __all__ = [
 #: Bumped whenever a message changes shape. Every header carries it and every receiver checks it;
 #: `hello` and its reply repeat it, so each end can refuse the other before the first real call.
 #: 2: the reply to `hello` carries the policy's `observe_every`, and `act` may carry a stack of the
-#: observations a chunk produced (`vicl_protocol.observe`).
+#: observations a chunk produced (`horizon_protocol.observe`).
 #: 3: `hello` says which protocol, which action types and which observation cadence the client
 #: honours, its reply may carry `served`, and `prompt` carries an `info` of the keys Q14 names.
 PROTOCOL_VERSION = 3

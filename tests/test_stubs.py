@@ -12,9 +12,9 @@ from protocol_testing import (
     write_bundle,
 )
 
-from vicl_protocol import bundle, conventions, observe
-from vicl_protocol.policy import Policy
-from vicl_protocol.stubs import ReplayPolicy, ZeroPolicy
+from horizon_protocol import bundle, conventions, observe
+from horizon_protocol.policy import Policy
+from horizon_protocol.stubs import ReplayPolicy, ZeroPolicy
 
 
 def test_zero_policy_holds_still_by_echoing_the_state_the_spec_names():
@@ -139,7 +139,7 @@ def test_replay_policy_serves_its_cadence_over_the_socket(tmp_path):
     np.savez(path, ee_actions=actions)
     served = serve(
         tmp_path / "socket",
-        "vicl_protocol.stubs:ReplayPolicy",
+        "horizon_protocol.stubs:ReplayPolicy",
         f"expert={path}",
         "observe_every=4",
         honors_observe_every=True,  # the selftest's harness records what the chunk produced

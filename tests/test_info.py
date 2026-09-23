@@ -9,8 +9,8 @@ import numpy as np
 import pytest
 from protocol_testing import TOO_BIG_FOR_A_DOUBLE, aloha_spec, demonstration, info, serve
 
-from vicl_protocol import BundleError, BundleSchemaError, PolicyUnavailable, wire
-from vicl_protocol.info import INSTRUCTION, REFUSED_KEYS, REQUIRED_KEYS, check_info
+from horizon_protocol import BundleError, BundleSchemaError, PolicyUnavailable, wire
+from horizon_protocol.info import INSTRUCTION, REFUSED_KEYS, REQUIRED_KEYS, check_info
 
 
 def test_the_keys_a_fork_sends_are_Q14s():
@@ -118,7 +118,7 @@ def test_demo_cameras_names_the_frames_the_demonstration_holds():
 
 def test_a_client_that_is_not_remotepolicy_cannot_hand_a_policy_another_info(tmp_path):
     """The server checks too, so the schema does not depend on which client a fork uses."""
-    served = serve(tmp_path, "vicl_protocol.stubs:ZeroPolicy", max_sessions=2)
+    served = serve(tmp_path, "horizon_protocol.stubs:ZeroPolicy", max_sessions=2)
     arrays, sent = demonstration()
     served.policy.hello()
     served.policy.close()  # session one, so the raw client below gets session two
@@ -206,7 +206,7 @@ def test_an_info_the_wire_cannot_carry_is_a_schema_error_like_any_other(value):
 
 
 def test_an_info_the_wire_cannot_carry_is_refused_before_anything_is_sent(tmp_path):
-    served = serve(tmp_path, "vicl_protocol.stubs:ZeroPolicy")
+    served = serve(tmp_path, "horizon_protocol.stubs:ZeroPolicy")
     arrays, sent = demonstration()
     try:
         served.policy.hello()
@@ -220,7 +220,7 @@ def test_an_info_the_wire_cannot_carry_is_refused_before_anything_is_sent(tmp_pa
 
 
 def test_a_demonstration_with_a_bad_info_never_reaches_a_served_policy(tmp_path):
-    served = serve(tmp_path, "vicl_protocol.stubs:ZeroPolicy")
+    served = serve(tmp_path, "horizon_protocol.stubs:ZeroPolicy")
     arrays, sent = demonstration()
     try:
         served.policy.hello()

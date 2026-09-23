@@ -13,9 +13,9 @@ import policies_for_tests
 import protocol_testing as helpers
 import pytest
 
-import vicl_protocol
-from vicl_protocol import bundle, conformance, conventions, result, serve, wire
-from vicl_protocol.errors import (
+import horizon_protocol
+from horizon_protocol import bundle, conformance, conventions, result, serve, wire
+from horizon_protocol.errors import (
     BundleError,
     BundleSchemaError,
     ConformanceError,
@@ -38,8 +38,8 @@ def expert_npz(tmp_path):
 
 
 def test_the_module_ships_with_the_package():
-    """It is part of the wheel, not of the tests: `pyproject` packages `src/vicl_protocol`."""
-    assert Path(conformance.__file__).parent == Path(vicl_protocol.__file__).parent
+    """It is part of the wheel, not of the tests: `pyproject` packages `src/horizon_protocol`."""
+    assert Path(conformance.__file__).parent == Path(horizon_protocol.__file__).parent
 
 
 def test_it_imports_with_numpy_alone():
@@ -48,21 +48,21 @@ def test_it_imports_with_numpy_alone():
         "import sys, json, sysconfig;"
         "std = sysconfig.get_paths()['stdlib'];"
         "before = {n for n, m in sys.modules.items() if getattr(m, '__file__', None)};"
-        "from vicl_protocol import conformance;"
+        "from horizon_protocol import conformance;"
         "print(json.dumps([conformance.__file__, sorted({"
         "    n.split('.')[0] for n, m in sys.modules.items()"
         "    if n not in before and getattr(m, '__file__', None)"
         "    and not str(m.__file__).startswith(std)"
         "})]))"
     )
-    source = str(Path(vicl_protocol.__file__).parent.parent)
+    source = str(Path(horizon_protocol.__file__).parent.parent)
     env = dict(os.environ, PYTHONPATH=source)
     out = subprocess.run(
         [sys.executable, "-c", code], capture_output=True, text=True, check=True, env=env
     )
     imported, third_party = json.loads(out.stdout)
     assert imported == conformance.__file__  # the same module, not another installation's
-    assert set(third_party) <= {"numpy", "vicl_protocol"}
+    assert set(third_party) <= {"numpy", "horizon_protocol"}
 
 
 # -- the action_spec check (C-P1, P9) -------------------------------------------------------------
@@ -207,7 +207,7 @@ def test_the_observation_goes_out_read_only():
 
 
 def test_check_policy_drives_the_zero_stub():
-    report = conformance.check_policy("vicl_protocol.stubs:ZeroPolicy", spec=ALOHA)
+    report = conformance.check_policy("horizon_protocol.stubs:ZeroPolicy", spec=ALOHA)
     assert report["action_type"] == "ee"
     assert report["observe_every"] == 0
     assert report["served"] is None
@@ -216,7 +216,7 @@ def test_check_policy_drives_the_zero_stub():
 
 def test_check_policy_drives_the_replay_stub_with_a_cadence(expert_npz):
     report = conformance.check_policy(
-        "vicl_protocol.stubs:ReplayPolicy",
+        "horizon_protocol.stubs:ReplayPolicy",
         policy_args={"expert": str(expert_npz), "key": "ee_actions", "observe_every": "2"},
         spec=ALOHA,
     )
@@ -263,8 +263,8 @@ def test_check_policy_builds_through_build_policy(monkeypatch):
     seen = []
     original = serve.build_policy
     monkeypatch.setattr(serve, "build_policy", lambda *a, **k: seen.append(a) or original(*a, **k))
-    conformance.check_policy("vicl_protocol.stubs:ZeroPolicy", spec=ALOHA)
-    assert seen == [("vicl_protocol.stubs:ZeroPolicy", None)]
+    conformance.check_policy("horizon_protocol.stubs:ZeroPolicy", spec=ALOHA)
+    assert seen == [("horizon_protocol.stubs:ZeroPolicy", None)]
 
 
 def test_check_policy_resets_the_policy_with_the_seed_it_was_given():
@@ -321,14 +321,14 @@ def test_check_policy_refuses_a_space_that_is_not_the_convention():
     """
     with pytest.raises(ConformanceError, match="gripper_command"):
         conformance.check_policy(
-            "vicl_protocol.stubs:ZeroPolicy", spec=dict(ALOHA, gripper_command="velocity")
+            "horizon_protocol.stubs:ZeroPolicy", spec=dict(ALOHA, gripper_command="velocity")
         )
 
 
 def test_check_policy_refuses_a_policy_for_another_space():
     with pytest.raises(ConformanceError, match="action_type"):
         conformance.check_policy(
-            "vicl_protocol.stubs:ZeroPolicy",
+            "horizon_protocol.stubs:ZeroPolicy",
             policy_args={"action_type": "qpos"},
             spec=ALOHA,
         )
@@ -338,7 +338,7 @@ def test_check_policy_refuses_an_action_of_the_wrong_width(expert_npz):
     """A one-armed space and a two-armed trajectory: C-P2 catches it on the first answer."""
     with pytest.raises(ConformanceError, match="C-P2"):
         conformance.check_policy(
-            "vicl_protocol.stubs:ReplayPolicy",
+            "horizon_protocol.stubs:ReplayPolicy",
             policy_args={"expert": str(expert_npz), "key": "ee_actions"},
             spec=PANDA,
         )
@@ -404,7 +404,7 @@ def test_check_policy_closes_a_policy_refused_before_it_was_driven(policy, refus
 def test_check_policy_takes_a_demonstration_a_fork_already_holds(tmp_path):
     _, arrays, info, _ = helpers.write_bundle(tmp_path / "unit")
     report = conformance.check_policy(
-        "vicl_protocol.stubs:ZeroPolicy", demo=(bundle.public_arrays(arrays), info)
+        "horizon_protocol.stubs:ZeroPolicy", demo=(bundle.public_arrays(arrays), info)
     )
     assert report["actions"] == [(16,), (16,)]
 
@@ -432,7 +432,7 @@ def test_check_policy_refuses_a_demonstration_whose_info_is_not_q14s():
     arrays, info = conformance.demonstration(ALOHA)
     with pytest.raises(BundleSchemaError, match="instruction"):
         conformance.check_policy(
-            "vicl_protocol.stubs:ZeroPolicy",
+            "horizon_protocol.stubs:ZeroPolicy",
             demo=(arrays, {key: value for key, value in info.items() if key != "instruction"}),
         )
 
@@ -473,7 +473,7 @@ def test_check_policy_catches_a_policy_that_ignores_its_seed():
 
 
 def test_check_policy_repeats_a_policy_that_answers_from_its_seed():
-    report = conformance.check_policy("vicl_protocol.stubs:ZeroPolicy", spec=ALOHA, repeat=True)
+    report = conformance.check_policy("horizon_protocol.stubs:ZeroPolicy", spec=ALOHA, repeat=True)
     assert report["actions"] == [(16,), (16,)]
 
 
@@ -481,14 +481,14 @@ def test_check_policy_refuses_a_demonstration_that_may_not_be_sent():
     arrays, info = conformance.demonstration(ALOHA)
     with pytest.raises(BundleSchemaError):
         conformance.check_policy(
-            "vicl_protocol.stubs:ZeroPolicy",
+            "horizon_protocol.stubs:ZeroPolicy",
             demo=({**arrays, "endpose": np.zeros((4, 16))}, info),
         )
 
 
 def test_check_policy_needs_a_space_or_a_demonstration():
     with pytest.raises(ConformanceError, match="spec"):
-        conformance.check_policy("vicl_protocol.stubs:ZeroPolicy")
+        conformance.check_policy("horizon_protocol.stubs:ZeroPolicy")
 
 
 # -- the served round trip ------------------------------------------------------------------------
@@ -497,7 +497,7 @@ def test_check_policy_needs_a_space_or_a_demonstration():
 def test_check_served_drives_the_zero_stub_over_the_socket(tmp_path):
     """`repeat` drives the one session twice from the seed, so the stub answers the same twice."""
     report = conformance.check_served(
-        "vicl_protocol.stubs:ZeroPolicy",
+        "horizon_protocol.stubs:ZeroPolicy",
         spec=ALOHA,
         repeat=True,
         log_file=tmp_path / "policy.log",
@@ -510,7 +510,7 @@ def test_check_served_drives_the_zero_stub_over_the_socket(tmp_path):
 def test_check_served_honours_a_cadence(expert_npz, tmp_path):
     """A client that said no to `observe_every` would be refused: this one says yes."""
     report = conformance.check_served(
-        "vicl_protocol.stubs:ReplayPolicy",
+        "horizon_protocol.stubs:ReplayPolicy",
         policy_args={"expert": str(expert_npz), "key": "ee_actions", "observe_every": "2"},
         spec=ALOHA,
         log_file=tmp_path / "policy.log",
@@ -606,7 +606,7 @@ def test_check_served_reports_a_policy_that_cannot_be_built(tmp_path):
     """The server builds the policy at `hello`, so the client's own failure is what is raised."""
     with pytest.raises(PolicyUnavailable, match="FileNotFoundError"):
         conformance.check_served(
-            "vicl_protocol.stubs:ReplayPolicy",
+            "horizon_protocol.stubs:ReplayPolicy",
             policy_args={"expert": str(tmp_path / "nothing.npz")},
             spec=ALOHA,
             timeout_s=20.0,
@@ -617,7 +617,7 @@ def test_check_served_refuses_a_policy_for_another_space(tmp_path):
     """The client executes the declared action type alone, so the server refuses the handshake."""
     with pytest.raises(PolicyUnavailable, match="does not execute"):
         conformance.check_served(
-            "vicl_protocol.stubs:ZeroPolicy",
+            "horizon_protocol.stubs:ZeroPolicy",
             policy_args={"action_type": "qpos"},
             spec=ALOHA,
             timeout_s=20.0,
@@ -650,7 +650,7 @@ def test_check_served_reports_a_server_that_died_before_it_listened(tmp_path):
     stub.chmod(0o755)
     with pytest.raises(ConformanceError, match="exited 9 before it listened"):
         conformance.check_served(
-            "vicl_protocol.stubs:ZeroPolicy",
+            "horizon_protocol.stubs:ZeroPolicy",
             spec=ALOHA,
             executable=str(stub),
             timeout_s=20.0,
@@ -708,7 +708,7 @@ def test_check_served_refuses_what_it_would_send_before_it_starts_a_server(
 
     monkeypatch.setattr(conformance.subprocess, "Popen", refuse)
     with pytest.raises(refusal, match=says):
-        conformance.check_served("vicl_protocol.stubs:ZeroPolicy", **kwargs)
+        conformance.check_served("horizon_protocol.stubs:ZeroPolicy", **kwargs)
 
 
 def test_a_served_check_kills_a_server_that_outlives_its_client():
@@ -894,7 +894,7 @@ def test_check_result_refuses_a_void_without_a_cause(tmp_path):
 
 # -- what a check refuses its caller --------------------------------------------------------------
 
-ZERO = "vicl_protocol.stubs:ZeroPolicy"
+ZERO = "horizon_protocol.stubs:ZeroPolicy"
 
 
 @pytest.mark.parametrize(

@@ -1,6 +1,6 @@
 # Action and observation conventions
 
-Normative source: robotensor/vicl-competition docs/decisions/q3-conventions.md (decision Q3); where they differ, that record wins.
+Normative source: robotensor/horizon-competition docs/decisions/q3-conventions.md (decision Q3); where they differ, that record wins.
 
 This is the specification for anyone who adds a **new benchmark** (or a new robot to an existing
 one) or a **new model family** to the competition. It says what every number exchanged between a
@@ -10,28 +10,28 @@ it right. You do not need to have read the discussions behind it.
 **Words.** MUST, MUST NOT, SHOULD and MAY are normative.
 **Evidence tags.** [code] = the code shows it; [data] = read from released data; [measured] = a check
 run on CPU; [inference] = reasoning, not shown by code.
-**Paths.** Line numbers are at these commits. `RoboTwin/…` is the RoboTwin fork (`robotensor/RoboTwin-VICL`,
+**Paths.** Line numbers are at these commits. `RoboTwin/…` is the RoboTwin fork (`robotensor/RoboTwin-Horizon`,
 branch `zerowam`, `ffeaed6`; `robot.py` = `envs/robot/robot.py`, `_base_task.py` =
 `envs/_base_task.py`); `robocasa/…` is the robocasa fork (branch `zerowam`, `f116b56`);
 `robosuite/…` is robosuite `5ce6643f`; `Zero-WAM/…` is Zero-WAM `08e2c4a`; `runtime/…` is
-`vicl-runtime-zerowam` `a42edf7`; this package's own files are at `c0bb625`. `transforms3d
+`horizon-runtime-zerowam` `a42edf7`; this package's own files are at `c0bb625`. `transforms3d
 quaternions.py` is `transforms3d/quaternions.py` of the transforms3d package RoboTwin runs with
 (0.4.2). The constants and the pure checks C-P1..3 named below live in
-`vicl_protocol.conventions`; the helpers the forks' selftests use live in
-`vicl_protocol.conformance` (P10).
+`horizon_protocol.conventions`; the helpers the forks' selftests use live in
+`horizon_protocol.conformance` (P10).
 
 **Status.** This page is the contract; where an item below has not landed, the page is what
 implementers follow.
 
-- **Landed in this package:** `vicl_protocol.conventions` (P9): the constants, `check_action_spec`
+- **Landed in this package:** `horizon_protocol.conventions` (P9): the constants, `check_action_spec`
   (C-P1), `check_chunk(a, spec)` (C-P2), `check_observation(obs, spec, cameras)` (C-P3),
   `arm_slices` and `same_rotation`. `demo.json`'s `action_spec`, required and checked with
   `check_action_spec` by `bundle.write` and `bundle.read`, with `BUNDLE_VERSION` 2 (P2). The `info`
-  schema, `vicl_protocol.info` (P11): `REQUIRED_KEYS` and `check_info`, run by
+  schema, `horizon_protocol.info` (P11): `REQUIRED_KEYS` and `check_info`, run by
   `RemotePolicy.set_demonstration` before it sends and by the server on every `prompt`.
   `PROTOCOL_VERSION` is 3 (P6): `hello` declares each end's protocol, the action types the
   benchmark executes and whether it honours `observe_every`, and its reply may carry `served`.
-- **Landed in this package (continued):** `vicl_protocol.conformance` (P10), the suite the
+- **Landed in this package (continued):** `horizon_protocol.conformance` (P10), the suite the
   forks' selftests, the runtime's tests and the harness run: `check_action_spec` (C-P1 as one
   exception type, with the arms' slices), `hold_still` (a row of the declared layout, through C-P2
   and C-P3), `check_policy` and `check_served` (a policy built through `serve.build_policy` and
@@ -70,7 +70,7 @@ Each item is a trap that was found in this code base. The rule that prevents it 
    writes each feature from the start of its group, and its test asserts mask[28] true and mask[29]
    false (Zero-WAM/wan_va/dataset/lerobot_action.py:199-247; Zero-WAM/tests/test_lerobot_action.py:228-230)
    [code]. The runtime once put a single arm in the right slot with the left "held", claiming that
-   was the training layout (runtime/src/vicl_runtime_zerowam/actions.py:21-22); it was not.
+   was the training layout (runtime/src/horizon_runtime_zerowam/actions.py:21-22); it was not.
    **Rule:** a runtime maps by its embodiment table only and MUST NOT derive a slot from an arm name.
 2. **RoboTwin's world frame is not a base frame.**
    RoboTwin reports and executes end-effector poses in the **world** frame (RoboTwin/robot.py:595-602;
@@ -249,7 +249,7 @@ number a fork or a file gave it: `demo.json`'s `camera.pose` and `camera.fovy`, 
 - `action_type`, `action_dim`, `action_dims` and `control_hz` MUST NOT appear at the top level
   (`conventions.REFUSED_INFO_KEYS`).
 - The other keys (`embodiment`, `step_limit`, `instruction`, `demo_text`, …) are defined by the
-  protocol's `info` schema (vicl-competition decisions Q14 and Q4): `vicl_protocol.info`
+  protocol's `info` schema (horizon-competition decisions Q14 and Q4): `horizon_protocol.info`
   holds it, and `check_info(info, arrays)` refuses an `info` that breaks it with
   `BundleSchemaError`, at the client before a byte is sent and at the server on every `prompt`.
   A fork MAY add keys of its own; none of them is read here.
@@ -262,7 +262,7 @@ number a fork or a file gave it: `demo.json`'s `camera.pose` and `camera.fovy`, 
 | aloha-agilex | `head_camera` → `ego`, `left_camera` → `wrist_left`, `right_camera` → `wrist_right` |
 | PandaOmron | `robot0_head` → `ego`, `robot0_eye_in_hand` → `wrist_right`, `robot0_agentview_right` → `third` (and `robot0_agentview_left` → `third` when rendered) |
 
-**What reaches a policy** (decided by vicl-competition Q4; its specification is this package's
+**What reaches a policy** (decided by horizon-competition Q4; its specification is this package's
 `docs/demonstrations.md`). With the demonstration (`prompt`): only the arrays `frames_<camera>` (one
 per name in `info.demo_cameras`) and `times`, plus `info`. Never the demonstrator's state or
 actions (`qpos`, `endpose`, `actions`, `ee_actions`, `states`): those stay in `private/expert.npz`.
@@ -299,7 +299,7 @@ MuJoCo differ, and a consumer MUST NOT assume one.
 |---|---|---|
 | Simulator values ↔ wire (rotation form, quaternion order, float precision, gripper range, direction and command semantics, padding of held DoFs) | Fork | One pair of pure functions per embodiment, `to_wire_state` and `from_wire_action`, unit-tested and used by observing, acting, the demonstration writer and the replay alike |
 | Declaring the space | Fork | One function per embodiment returns `action_spec`; evaluation and demonstration making both use it |
-| Spec, chunk and observation checks | Protocol | `check_action_spec`, `check_chunk(a, spec)`, `check_observation(obs, spec, info.cameras)` (`vicl_protocol.conventions`) |
+| Spec, chunk and observation checks | Protocol | `check_action_spec`, `check_chunk(a, spec)`, `check_observation(obs, spec, info.cameras)` (`horizon_protocol.conventions`) |
 | world ↔ base conversion, if a model needs it | That model's runtime, from `base_poses` | Forks never convert frames |
 | Wire ↔ model layout | Model runtime only | One embodiment table (R1) |
 | Training data in the model's layout | The runtime's recipes | The same functions as serving; `action_spec` read from each bundle's `demo.json` |
@@ -356,7 +356,7 @@ Replay actions: the wire state at t+1, with MimicGen's gripper action `a` (−1 
   first. A family trained in one frame MUST pin that frame, so that it is refused, not silently
   wrong, on a benchmark that declares another.
 
-**Example: Zero-WAM's table** (vicl-runtime-zerowam `families/zerowam.yml` `embodiments:`; its model has
+**Example: Zero-WAM's table** (horizon-runtime-zerowam `families/zerowam.yml` `embodiments:`; its model has
 30 channels: hand pose 0-13, joints 14-27, grippers 28-29, Zero-WAM/wan_va/dataset/lerobot_action.py:14-21
 [code]). It shows why a slot is the table's, not the wire's.
 

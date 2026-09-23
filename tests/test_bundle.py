@@ -17,7 +17,7 @@ from protocol_testing import (
     write_bundle,
 )
 
-from vicl_protocol import BundleError, BundleSchemaError, bundle
+from horizon_protocol import BundleError, BundleSchemaError, bundle
 
 
 def test_write_then_read_round_trips(tmp_path):

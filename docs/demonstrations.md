@@ -1,6 +1,6 @@
 # Demonstrations: what a policy receives, and what stays private
 
-Normative source: robotensor/vicl-competition docs/decisions/q4-demonstration.md (decision Q4).
+Normative source: robotensor/horizon-competition docs/decisions/q4-demonstration.md (decision Q4).
 
 This page is for someone who adds a benchmark (a fork that writes bundles) or a model family (a runtime that consumes them).
 - If this page and the decision disagree, the decision wins.
@@ -16,13 +16,13 @@ This page is for someone who adds a benchmark (a fork that writes bundles) or a 
 | P2 | this repo | bundle version 2: every file hashed, `private/` included, and `demo.json`'s sha256 as the bundle's digest | landed: `bundle.write(..., expert=...)`, `private_files`, `bundle.digest(bundle_dir)` |
 | P13 | this repo | the check at send | landed: `RemotePolicy.set_demonstration` refuses a non-allow-listed array before a byte is sent |
 | P14 | this repo | the input vocabulary | landed: `bundle.DEMONSTRATION_INPUTS`, `bundle.PROMPT_LANGUAGES`, `bundle.check_demonstration_inputs` |
-| P10 | this repo | conformance | landed: `vicl_protocol.conformance` (`check_policy`, `check_served`, `check_bundle`, `check_result`, `check_action_spec`), in the wheel; the consumers adopt it in RT16, RC11 and RU9 |
-| P11 | this repo | `info` keys | landed: `vicl_protocol.info` (`REQUIRED_KEYS`, `check_info`), checked by `RemotePolicy.set_demonstration` and by the server |
+| P10 | this repo | conformance | landed: `horizon_protocol.conformance` (`check_policy`, `check_served`, `check_bundle`, `check_result`, `check_action_spec`), in the wheel; the consumers adopt it in RT16, RC11 and RU9 |
+| P11 | this repo | `info` keys | landed: `horizon_protocol.info` (`REQUIRED_KEYS`, `check_info`), checked by `RemotePolicy.set_demonstration` and by the server |
 | P4 | this repo | the optional `stub_policy` field in `result.json` | landed: `result.write(..., stub_policy="zero" \| "replay")`, checked by `result.read`, with result version 2 |
 | RT3, RT9, RT11, RT16 | RoboTwin fork | exit 2, stub marking, `info` keys, tests | pending |
 | RC1, RC11 | robocasa fork | exit 2, tests | pending |
-| RU9, RU15 | vicl-runtime-zerowam | runtime and recipes | pending |
-| C3, C10, C12 | vicl-competition | competition | pending |
+| RU9, RU15 | horizon-runtime-zerowam | runtime and recipes | pending |
+| C3, C10, C12 | horizon-competition | competition | pending |
 
 A fork still builds `set_demonstration`'s arrays with `bundle.public_arrays` of what `bundle.read` returned: the check at send is the last guard, not the way to find out what is public.
 
@@ -99,7 +99,7 @@ After an epoch closes, nothing in a bundle is privileged, and whole bundles MAY 
 ## 3. The allow-list
 
 ```python
-# vicl_protocol/bundle.py
+# horizon_protocol/bundle.py
 PUBLIC_PREFIXES = ("frames_",)
 PUBLIC_NAMES = ("times",)
 ```
@@ -133,14 +133,14 @@ A fork catches `BundleSchemaError` before `BundleError`. A `BundleSchemaError` r
 ## 4. What `set_demonstration` carries
 
 ```python
-from vicl_protocol import bundle
+from horizon_protocol import bundle
 
 manifest, arrays = bundle.read(bundle_dir)  # refuses a bundle with a disallowed array
 policy.set_demonstration(bundle.public_arrays(arrays), info)
 ```
 
 - **`arrays`:** exactly `bundle.public_arrays(arrays)`. That is `frames_<camera>` for each demonstration camera, and `times`. The server holds a `prompt`'s arrays to the allow-list as well, so a client that is not `RemotePolicy` cannot hand a policy the demonstrator's record either; either refusal is an error reply the session survives.
-- **`info`:** the keys Q14 defines, held to them by `vicl_protocol.info.check_info(info, arrays)`, which the client runs before it sends and the server runs on every `prompt`. Only the three keys in §5 come from the demonstration. The rest describe the evaluation:
+- **`info`:** the keys Q14 defines, held to them by `horizon_protocol.info.check_info(info, arrays)`, which the client runs before it sends and the server runs on every `prompt`. Only the three keys in §5 come from the demonstration. The rest describe the evaluation:
   - `embodiment`, the robot a runtime looks up in its own table;
   - `action_spec` (Q3), which alone describes the action space: `action_type`, `action_dim`, `action_dims` and `control_hz` are refused at the top level;
   - `cameras` (the observation cameras, `{name, role, w, h}` each, Q3);
@@ -205,7 +205,7 @@ Each fork pins its axes' public key sets and observation key sets in tests.
 | Reader | May read | Rule |
 |---|---|---|
 | The fork's `eval run`, serving a submission | `private/scene.json`, `private/scene/` | MUST NOT open `private/expert.npz`. A fork test proves it: an `expert.npz` made unloadable as data (see below) gives the same result. |
-| **`ReplayPolicy`** (`vicl_protocol.stubs`) | `private/expert.npz`, key `ee_actions`, handed to it by the harness | **The one exception.** A test instrument for the T1 selftest and `--stub-policy replay`. It MUST NOT be served in a scored epoch. A stub run records `stub_policy` (`zero` or `replay`, `result.STUB_POLICIES`) in `result.json`, and the competition refuses to score such a result outside a dry run. |
+| **`ReplayPolicy`** (`horizon_protocol.stubs`) | `private/expert.npz`, key `ee_actions`, handed to it by the harness | **The one exception.** A test instrument for the T1 selftest and `--stub-policy replay`. It MUST NOT be served in a scored epoch. A stub run records `stub_policy` (`zero` or `replay`, `result.STUB_POLICIES`) in `result.json`, and the competition refuses to score such a result outside a dry run. |
 | `demo verify`, audit | everything | organiser tools only |
 | Recipes shipped with a runtime | `private/expert.npz`, and `private/scene/` to re-render views | only on bundles of closed epochs, or on the participant's own `demo make` output |
 | Any policy or runtime being served | nothing | — |
@@ -219,7 +219,7 @@ Each fork pins its axes' public key sets and observation key sets in tests.
 The vocabulary is defined here, beside the allow-list, so that it binds every family whichever runtime repository ships it:
 
 ```python
-# vicl_protocol/bundle.py
+# horizon_protocol/bundle.py
 DEMONSTRATION_INPUTS = ("video", "caption")
 PROMPT_LANGUAGES = ("none", "generic", "demonstration_caption")
 
@@ -255,7 +255,7 @@ inputs:
 
 **Who calls the check**
 - The competition's `config check` (C3) reads the family file from the runtime checkout that the competition config names, and calls `check_demonstration_inputs` on it without importing that runtime. Naming that checkout is a new config entry, added by C3: today `competition.yml` names only the family.
-- Each runtime's own family loader also calls it. `vicl-runtime-zerowam` imports the constants; it does not define its own.
+- Each runtime's own family loader also calls it. `horizon-runtime-zerowam` imports the constants; it does not define its own.
 
 **Reading rule.** A runtime MUST NOT read any demonstration array or demonstration `info` key beyond what its declared inputs name. A runtime test proves this with a demonstration that carries extra arrays and keys.
 

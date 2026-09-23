@@ -6,17 +6,20 @@ All notable changes to this distribution. The format follows
 
 ## [Unreleased]
 
-### Breaking: the distribution is `vicl-protocol`
+### Breaking: the distribution is `horizon-protocol`
 
-The competition is renamed VICL (Video In-Context Learning), so `zerowam` names only the Zero-WAM
-model. Nothing on the wire or in a file changed: `PROTOCOL_VERSION`, `BUNDLE_VERSION` and
-`RESULT_VERSION` are as they were. What a consumer must change:
+Competition 2 is **Robotensor Horizon** (video-prompted world-action learning), so `zerowam` names
+only the Zero-WAM model and nothing else. Nothing on the wire or in a file changed:
+`PROTOCOL_VERSION`, `BUNDLE_VERSION` and `RESULT_VERSION` are as they were. What a consumer must
+change:
 
-- The distribution is `vicl-protocol` (repository `robotensor/vicl-protocol`) and the package
-  `vicl_protocol`: `import vicl_protocol`, `python -m vicl_protocol.serve`.
-- The authkey the docs and tests use is `VICL_AUTHKEY` (the server still takes any name through
-  `--authkey-env`). The CI token is `VICL_CI_TOKEN`.
+- The distribution is `horizon-protocol` (repository `robotensor/horizon-protocol`) and the package
+  `horizon_protocol`: `import horizon_protocol`, `python -m horizon_protocol.serve`.
+- The authkey the docs and tests use is `HORIZON_AUTHKEY` (the server still takes any name through
+  `--authkey-env`). The CI token is `HORIZON_CI_TOKEN`.
 - A family name stays the model's: `served.family` is still `zerowam` for the Zero-WAM runtime.
+
+This supersedes the unreleased `vicl-protocol` naming, which no release ever carried.
 
 ### Breaking: bundle v2, result v2, protocol 3
 
