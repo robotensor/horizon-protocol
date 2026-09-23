@@ -488,7 +488,9 @@ def _redirect_output(path: Path) -> None:
 def _configure_logging() -> None:
     handler = logging.StreamHandler(sys.stderr)
     handler.setFormatter(
-        logging.Formatter("%(asctime)s horizon_protocol.serve[%(process)d] %(levelname)s %(message)s")
+        logging.Formatter(
+            "%(asctime)s horizon_protocol.serve[%(process)d] %(levelname)s %(message)s"
+        )
     )
     log.handlers[:] = [handler]
     log.setLevel(logging.INFO)

@@ -1,4 +1,4 @@
-"""The Robotensor Horizon competition's protocol: the socket between a benchmark and a model, and the files
+"""Robotensor Horizon's protocol: the socket between a benchmark and a model, and the files
 they exchange.
 
 A benchmark drives a model it cannot import - the simulator and the model pin different stacks, and
