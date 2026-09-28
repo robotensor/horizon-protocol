@@ -1,5 +1,10 @@
 # horizon-protocol
 
+> **Moved.** This code lives in
+> [robotensor/horizon-competition](https://github.com/robotensor/horizon-competition/tree/main/packages/horizon-protocol)
+> under `packages/horizon-protocol` now, with its history (decision Q31 there), and changes only there. This
+> repository is archived: its issues and pull requests stay here to read.
+
 The protocol of the [Robotensor Horizon competition](https://github.com/robotensor): the socket between a
 benchmark and a served model, and the two files they exchange around it.
 
